@@ -66,7 +66,7 @@ In **Lampa → Settings → TorrServer** (menu labels can vary between versions)
 | Login / username | Your chosen name, e.g. `lampa` |
 | Password | Your password from the local installer or `--show-credentials` |
 
-**Important:** a link such as `https://109.224.231.152:32000` is **not** the Lampa URL. Port `32000` is for BitTorrent peers, not the web player. Always use the HTTPS **CDN domain**.
+**Important:** a link such as `https://203.0.113.10:32000` is **not** the Lampa URL. Port `32000` is for BitTorrent peers, not the web player. Always use the HTTPS **CDN domain**.
 
 If `status` does not yet show the CDN address, find the `torrserver-https` endpoint in **Bunny Dashboard → Magic Containers → your app → Endpoints**. You can save that real HTTPS domain:
 
