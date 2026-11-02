@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 API = 'https://api.bunny.net'
 IMAGE = 'ghcr.io/vbrekher/torrserver-bunny:main'
 CONFIG = pathlib.Path.home() / '.config' / 'torrserver-bunny' / 'config.json'
-CLI_BUILD = '2026-11-02-official-cli-payload-parity'
+CLI_BUILD = '2026-11-02-numeric-ghcr-registry-id'
 USER_AGENT = 'TorrServer-bunny/0.2 (+https://github.com/vbrekher/TorrServer-bunny)'
 
 
@@ -174,23 +174,27 @@ def registry_ids(registries, host='ghcr.io'):
         if registered_host.startswith('https://'):
             registered_host = registered_host[8:]
         value = entry.get('id')
-        if registered_host == host and isinstance(value, (str, int)) and not isinstance(value, bool) and str(value):
+        if registered_host == host and isinstance(value, (str, int)) and not isinstance(value, bool) and re.fullmatch(r'[1-9][0-9]*', str(value)):
             if str(value) not in matches:
                 matches.append(str(value))
     return matches
 
 
 def ensure_registry(key, existing, image=IMAGE):
-    """Pick an existing or built-in GHCR registry that can resolve the actual image.
+    """Verify an existing, numeric Bunny registry ID for the specific GHCR image.
 
-    The digest check is a read-only operation in Bunny: no new registry or paid app
-    is created here. Multiple GHCR connections are normal and never deleted.
+    The digest endpoint accepts symbolic aliases such as "github" but those
+    are not necessarily valid as imageRegistryId in POST /mc/apps. The official
+    Bunny CLI uses IDs from GET /registries, which are numeric. Never mutate
+    shared registries here and never create a paid application on failed check.
     """
     fields = split_image(image)
     matches = registry_ids(existing)
     if len(matches) > 1:
         print(f'Found {len(matches)} GHCR registry connections. Checking image access without changing them.')
-    candidates = list(dict.fromkeys(['github', *matches]))
+    if not matches:
+        raise DeploymentError('No numeric ghcr.io registry ID found in this account. Register GHCR in Bunny dashboard first; app NOT created.')
+    candidates = matches
     for candidate in candidates:
         try:
             result = request('POST', '/mc/registries/digest', key, {
@@ -342,6 +346,15 @@ def doctor():
     items = named_apps(key)
     print('Bunny Magic Containers: exact torrserver-bunny apps found:', len(items))
     try:
+        current_registries = request('GET', '/mc/registries', key)
+        ids = registry_ids(current_registries)
+        print('  Existing GHCR registry IDs (numeric):', ', '.join(ids) if ids else '(none)')
+        if not ids:
+            print('WARNING: no numeric GHCR registry is available; setup must not create an app.')
+    except DeploymentError as exc:
+        print('  Registry listing unavailable:', str(exc)[:180])
+
+    try:
         limits = request('GET', '/mc/limits', key)
         if isinstance(limits, dict):
             for field in ('existingNumberOfApplications', 'maxNumberOfApplications',
@@ -367,8 +380,8 @@ def doctor():
 
 def build_payload(region, user, password, monitor_token, image=IMAGE, public_peers=False, image_registry_id=None):
     image_fields = split_image(image)
-    if not image_registry_id:
-        raise DeploymentError('Bunny imageRegistryId must be resolved before building a paid-app request')
+    if not image_registry_id or not re.fullmatch(r'[1-9][0-9]*', str(image_registry_id)):
+        raise DeploymentError('Bunny imageRegistryId must be a positive numeric registry ID returned by GET /mc/registries (not the alias github)')
     # Secrets are passed to the container as env vars, never to GitHub source.
     env = [
         {'name': 'TS_HTTPAUTH', 'value': '1'},
