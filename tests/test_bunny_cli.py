@@ -29,20 +29,31 @@ class CLIConfigTests(unittest.TestCase):
     def test_create_payload_matches_official_cli_required_shape(self):
         # Official BunnyWay/cli packages/config/src/convert.ts uses precisely
         # allowedRegionIds + requiredRegionIds and CDN mapping without protocols.
-        p = cli.build_payload('AMS', 'letin', 'pwd', 'token', image_registry_id='github')
+        p = cli.build_payload('AMS', 'letin', 'pwd', 'token', image_registry_id='91')
         self.assertEqual(set(p), {'name', 'runtimeType', 'autoScaling', 'regionSettings',
                                   'containerTemplates', 'volumes'})
         self.assertEqual(p['regionSettings'], {
             'allowedRegionIds': ['AMS'], 'requiredRegionIds': ['AMS']})
         c = p['containerTemplates'][0]
         self.assertEqual(c['image'], 'ghcr.io/vbrekher/torrserver-bunny:main')
-        self.assertEqual(c['imageRegistryId'], 'github')
+        self.assertEqual(c['imageRegistryId'], '91')
         self.assertEqual(c['imagePullPolicy'], 'always')
         self.assertEqual(c['endpoints'], [{
             'displayName': 'torrserver-https',
             'cdn': {'isSslEnabled': True, 'portMappings': [{'containerPort': 8080, 'exposedPort': 80}]}
         }])
         self.assertEqual(p['volumes'], [{'name': 'config', 'size': 1}])
+
+    def test_rejects_symbolic_registry_alias_before_paid_app(self):
+        with self.assertRaisesRegex(cli.DeploymentError, 'not the alias github'):
+            cli.build_payload('AMS', 'letin', 'pw', 'token', image_registry_id='github')
+        data = {'items': [{'id': 'github', 'hostName': 'ghcr.io'},
+                          {'id': 812, 'hostName': 'ghcr.io'}]}
+        self.assertEqual(cli.registry_ids(data), ['812'])
+        with patch.object(cli, 'request', return_value={'digest': 'sha256:' + 'b'*64}) as req:
+            self.assertEqual(cli.ensure_registry('key', data), '812')
+            req.assert_called_once()
+            self.assertEqual(req.call_args.args[3]['registryId'], '812')
 
     def test_public_ghcr_reference_validation(self):
         with self.assertRaises(cli.DeploymentError):
@@ -60,18 +71,18 @@ class CLIConfigTests(unittest.TestCase):
         def remote(method, path, key, payload):
             self.assertEqual((method, path), ('POST', '/mc/registries/digest'))
             lookups.append(payload['registryId'])
-            if payload['registryId'] in ('github', '91'):
+            if payload['registryId'] == '91':
                 raise cli.DeploymentError('Not visible in this registry')
             return {'digest': 'sha256:' + 'a'*64}
         with patch.object(cli, 'request', side_effect=remote) as req:
             self.assertEqual(cli.ensure_registry('secret', data), '92')
-            self.assertEqual(lookups, ['github', '91', '92'])
-            self.assertEqual(req.call_count, 3)
+            self.assertEqual(lookups, ['91', '92'])
+            self.assertEqual(req.call_count, 2)
 
-    def test_builtin_public_ghcr_preferred_no_registry_mutation(self):
+    def test_numeric_existing_ghcr_preferred_no_registry_mutation(self):
         data = {'items': [{'id': 91, 'hostName': 'ghcr.io'}, {'id': 92, 'hostName': 'ghcr.io'}]}
         with patch.object(cli, 'request', return_value={'digest': 'sha256:'+'b'*64}) as req:
-            self.assertEqual(cli.ensure_registry('secret', data), 'github')
+            self.assertEqual(cli.ensure_registry('secret', data), '91')
             self.assertEqual(req.call_count, 1)
             self.assertEqual(req.call_args.args[1], '/mc/registries/digest')
 
@@ -79,12 +90,12 @@ class CLIConfigTests(unittest.TestCase):
         with patch.object(cli, 'request', side_effect=cli.DeploymentError('Denied')) as req:
             with self.assertRaises(cli.DeploymentError):
                 cli.ensure_registry('secret', {'items': [{'id': 91, 'hostName': 'ghcr.io'}]})
-            self.assertEqual(req.call_count, 2)
+            self.assertEqual(req.call_count, 1)
 
     def test_rejects_malformed_digest(self):
         with patch.object(cli, 'request', return_value={'digest': 'not a sha256'}):
             with self.assertRaises(cli.DeploymentError):
-                cli.ensure_registry('secret', {'items': []})
+                cli.ensure_registry('secret', {'items': [{'id': 91, 'hostName': 'ghcr.io'}]})
 
     def test_existing_app_refuses_duplication(self):
         with patch.object(cli, 'request', return_value={'items': [{'name': 'torrserver-bunny', 'id': 'existing'}]}):
@@ -112,7 +123,7 @@ class CLIConfigTests(unittest.TestCase):
                 cli.setup(SimpleNamespace(image=cli.IMAGE, no_deploy=False))
                 app_posts = [payload for method, path, payload in requests if method == 'POST' and path == '/mc/apps']
                 self.assertEqual(len(app_posts), 1)
-                self.assertEqual(app_posts[0]['containerTemplates'][0]['imageRegistryId'], 'github')
+                self.assertEqual(app_posts[0]['containerTemplates'][0]['imageRegistryId'], '7')
                 self.assertEqual(len(app_posts[0]['containerTemplates'][0]['endpoints']), 1)
                 self.assertEqual(len([p for m,p,_ in requests if m=='POST' and p.endswith('/containers/ct-123/endpoints')]), 1)
                 self.assertTrue(cli.load_config()['public_peers'])
@@ -140,7 +151,7 @@ class CLIConfigTests(unittest.TestCase):
             raise AssertionError(path)
         with patch.object(cli, 'request', side_effect=fake):
             with self.assertRaisesRegex(cli.DeploymentError, 'no second POST'):
-                cli.create_app_safely('secret', {'name': 'torrserver-bunny'}, 'DE', cli.IMAGE, 'github')
+                cli.create_app_safely('secret', {'name': 'torrserver-bunny'}, 'DE', cli.IMAGE, '91')
         self.assertEqual([x for x in calls if x[0] == 'POST'], [('POST', '/mc/apps')])
 
     def test_http500_recovers_exact_new_app(self):
@@ -153,10 +164,10 @@ class CLIConfigTests(unittest.TestCase):
                 return {'name': 'torrserver-bunny', 'regionSettings': {'requiredRegionIds': ['DE']},
                         'containerTemplates': [{'name': 'torrserver', 'imageName': 'torrserver-bunny',
                                                 'imageNamespace': 'vbrekher', 'imageTag': 'main',
-                                                'imageRegistryId': 'github'}]}
+                                                'imageRegistryId': '91'}]}
             raise AssertionError(path)
         with patch.object(cli, 'request', side_effect=fake):
-            self.assertEqual(cli.create_app_safely('secret', {'name': 'torrserver-bunny'}, 'DE', cli.IMAGE, 'github'), 'app-new')
+            self.assertEqual(cli.create_app_safely('secret', {'name': 'torrserver-bunny'}, 'DE', cli.IMAGE, '91'), 'app-new')
 
     def test_http500_does_not_adopt_mismatched_app(self):
         def fake(method, path, key, payload=None):
@@ -170,7 +181,7 @@ class CLIConfigTests(unittest.TestCase):
             raise AssertionError(path)
         with patch.object(cli, 'request', side_effect=fake):
             with self.assertRaisesRegex(cli.DeploymentError, 'could not be verified'):
-                cli.create_app_safely('secret', {'name': 'torrserver-bunny'}, 'DE', cli.IMAGE, 'github')
+                cli.create_app_safely('secret', {'name': 'torrserver-bunny'}, 'DE', cli.IMAGE, '91')
 
     def test_enable_peers_is_idempotent(self):
         calls = []
@@ -195,7 +206,7 @@ class CLIConfigTests(unittest.TestCase):
             with patch.object(cli, 'CONFIG', pathlib.Path(tmp) / 'missing.json'), \
                  patch.object(cli, 'ask', return_value='secret'), patch.object(cli, 'request', side_effect=fake):
                 cli.doctor()
-        self.assertEqual(calls, ['GET', 'GET'])  # apps + limits, both read-only
+        self.assertEqual(calls, ['GET', 'GET', 'GET'])  # apps + registries + limits, all read-only
 
     def test_safe_url_only(self):
         self.assertEqual(cli.find_https_url({'endpoints':[{'cdn': {'hostname': 'mc-example.bunny.run'}}]}), 'https://mc-example.bunny.run')
