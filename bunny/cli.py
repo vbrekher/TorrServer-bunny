@@ -7,6 +7,7 @@ Bunny's API and, only if opted in, their own GitHub Actions repository secrets.
 import argparse
 import base64
 import getpass
+import ipaddress
 import json
 import os
 import pathlib
@@ -111,33 +112,83 @@ def extract_app_id(data):
     raise DeploymentError('Bunny created a response without a recognizable app ID. Inspect your Bunny dashboard; do not rerun setup blindly.')
 
 
+def canonical_https_endpoint(host):
+    """Only canonical HTTPS domain endpoints, never IP:port / torrent Anycast."""
+    if not isinstance(host, str) or not host.strip():
+        return None
+    raw = host.strip()
+    if '://' not in raw:
+        raw = 'https://' + raw
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+        if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password:
+            return None
+        if parsed.path not in ('', '/') or parsed.query or parsed.fragment:
+            return None
+        if parsed.port not in (None, 443):
+            return None
+        hostname = parsed.hostname.lower()
+        if hostname == 'localhost' or '.' not in hostname:
+            return None
+        try:
+            ipaddress.ip_address(hostname)
+        except ValueError:
+            pass
+        else:
+            return None
+        if re.fullmatch(r'[a-z0-9-]+(?:\.[a-z0-9-]+)+', hostname) is None:
+            return None
+        return 'https://' + hostname
+    except ValueError:
+        return None
+
+
 def find_https_url(data):
-    """Only use explicitly returned endpoint hostnames; never synthesize a URL."""
+    """Extract ONLY SSL-enabled CDN endpoints; ignore Anycast TCP/UDP hosts.
+
+    Bunny endpoints list response: items[] with type='cdn', isSslEnabled=true,
+    publicHost. App response: displayEndpoint with type='cdn' and address, and
+    containerTemplates[].endpoints[] with type='cdn'. No arbitrary URL traversal.
+    """
     candidates = []
-    def walk(obj):
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                key = k.lower()
-                if isinstance(v, str) and v and any(token in key for token in ('hostname', 'publichost', 'publicurl', 'endpointurl', 'cdnurl')):
-                    candidates.append(v)
-                if key == 'displayendpoint' and isinstance(v, dict) and isinstance(v.get('address'), str):
-                    candidates.append(v['address'])
-                if isinstance(v, (dict, list)):
-                    walk(v)
-        elif isinstance(obj, list):
+    def visit(obj):
+        if isinstance(obj, list):
             for item in obj:
-                walk(item)
-    walk(data)
-    for v in candidates:
-        u = v if v.startswith('https://') else 'https://' + v if '://' not in v else ''
-        parsed = urllib.parse.urlparse(u)
-        if parsed.scheme == 'https' and parsed.hostname and not parsed.username:
-            return f'https://{parsed.netloc}'
+                visit(item)
+            return
+        if not isinstance(obj, dict):
+            return
+
+        # The app has a selected display endpoint. It may be Anycast: check type.
+        display = obj.get('displayEndpoint')
+        if isinstance(display, dict) and str(display.get('type', '')).lower() == 'cdn':
+            candidates.append(display.get('address'))
+
+        # The endpoint list and container template endpoints provide explicit type.
+        if str(obj.get('type', '')).lower() == 'cdn' and obj.get('isSslEnabled') is True:
+            candidates.append(obj.get('publicHost'))
+
+        # Only the CDN portion of API request-style endpoint records is acceptable.
+        cdn = obj.get('cdn')
+        if isinstance(cdn, dict) and cdn.get('isSslEnabled') is True:
+            candidates.extend((cdn.get('publicHost'), cdn.get('hostname'), cdn.get('publicUrl')))
+
+        for key in ('items', 'endpoints', 'containerTemplates', 'containers'):
+            if isinstance(obj.get(key), (list, dict)):
+                visit(obj[key])
+
+    visit(data)
+    for host in candidates:
+        result = canonical_https_endpoint(host)
+        if result:
+            return result
     return None
 
 
 def fetch_url(key, app_id):
-    for path in (f'/mc/apps/{urllib.parse.quote(app_id, safe="")}/endpoints', f'/mc/apps/{urllib.parse.quote(app_id, safe="")}'):
+    """Prefer official endpoint listing, then fallback to app display endpoint."""
+    enc = urllib.parse.quote(app_id, safe='')
+    for path in (f'/mc/apps/{enc}/endpoints', f'/mc/apps/{enc}'):
         try:
             result = find_https_url(request('GET', path, key))
             if result:
@@ -145,7 +196,6 @@ def fetch_url(key, app_id):
         except DeploymentError:
             continue
     return None
-
 
 
 def split_image(image):
@@ -485,20 +535,25 @@ def setup(args):
         save_config(config)
     except DeploymentError:
         pass
-    print_details(config)
+    print_details(config, show_password=True)
     print('\nAutomatic 60-minute idle shutdown requires an external scheduler. See: bunny/README.md')
 
 
-def print_details(c):
+def print_details(c, show_password=False):
     print('\n=== Lampa connection ===')
-    if c.get('url'):
-        print('TorrServer URL:', c['url'])
+    url = canonical_https_endpoint(c.get('url'))
+    if url:
+        print('TorrServer HTTPS CDN URL:', url)
     else:
-        print('TorrServer URL: read the HTTPS CDN endpoint in Bunny dashboard;')
-        print('then run: torrserver-bunny set-url https://YOUR-REAL-ENDPOINT')
+        print('TorrServer HTTPS CDN URL: not yet returned by Bunny.')
+        print('Check Magic Containers → Application → Endpoints for a type=CDN, SSL-enabled domain.')
     print('Username:', c['username'])
-    print('Password:', c['password'])
-    print('Configure this URL + credentials in Lampa → Settings → TorrServer.')
+    if show_password:
+        print('Password:', c['password'])
+    else:
+        print('Password: hidden (use "torrserver-bunny status --show-credentials" locally)')
+    print('Configure this HTTPS CDN URL + credentials in Lampa → Settings → TorrServer.')
+    print('Anycast TCP/UDP port 32000 is ONLY for BitTorrent peers, NOT the Lampa URL.')
 
 
 def lifecycle(action):
@@ -507,31 +562,45 @@ def lifecycle(action):
     request('POST', f'/mc/apps/{urllib.parse.quote(c["app_id"], safe="")}/{verb}', c['api_key'])
     print(f'{verb.upper()} requested for {c["app_id"]}. Bunny transitions asynchronously.')
     if action == 'start':
-        if not c.get('url'):
-            c['url'] = fetch_url(c['api_key'], c['app_id'])
+        refreshed = fetch_url(c['api_key'], c['app_id'])
+        if refreshed:
+            c['url'] = refreshed
+            save_config(c)
+        elif not canonical_https_endpoint(c.get('url')):
+            c['url'] = None
             save_config(c)
         print_details(c)
 
 
-def status():
+def status(show_credentials=False):
+    """Read-only Bunny status. Repair stale Anycast-as-HTTPS URL locally."""
     c = load_config()
     data = request('GET', f'/mc/apps/{urllib.parse.quote(c["app_id"], safe="")}', c['api_key'])
     print('App ID:', c['app_id'], 'Region:', c['region'])
     print('State:', (data or {}).get('status', 'See Bunny dashboard') if isinstance(data, dict) else 'See Bunny dashboard')
-    if not c.get('url'):
-        c['url'] = fetch_url(c['api_key'], c['app_id'])
+    fresh = fetch_url(c['api_key'], c['app_id'])
+    old = c.get('url')
+    if fresh:
+        if old != fresh:
+            c['url'] = fresh
+            save_config(c)
+            print('HTTPS CDN URL refreshed from Bunny endpoint inventory.')
+    elif not canonical_https_endpoint(old):
+        if old:
+            print('Discarded invalid saved Anycast/HTTP endpoint (not usable by Lampa).')
+        c['url'] = None
         save_config(c)
-    print_details(c)
+    print_details(c, show_password=show_credentials)
 
 
 def set_url(url):
-    p = urllib.parse.urlparse(url)
-    if p.scheme != 'https' or not p.hostname or p.username or p.password or p.query or p.fragment:
-        raise DeploymentError('Enter a valid HTTPS CDN endpoint URL without credentials or query string')
+    verified = canonical_https_endpoint(url)
+    if verified is None:
+        raise DeploymentError('Enter an HTTPS CDN domain (no IP address, custom port, credentials or path). Do NOT use Anycast :32000.')
     c = load_config()
-    c['url'] = url.rstrip('/')
+    c['url'] = verified
     save_config(c)
-    print('Public URL saved:', c['url'])
+    print('Public HTTPS CDN URL saved:', verified)
 
 
 def get_activity(url, token):
@@ -612,7 +681,8 @@ def main(argv=None):
     init.add_argument('--no-deploy', action='store_true')
     sub.add_parser('start', help='Start your existing server')
     sub.add_parser('stop', help='Stop server compute (volume remains billed)')
-    sub.add_parser('status', help='Show app status and connection details')
+    st = sub.add_parser('status', help='Read Bunny app state and repair URL from HTTPS CDN endpoint')
+    st.add_argument('--show-credentials', action='store_true', help='Display TorrServer password locally (keep output private)')
     sub.add_parser('doctor', help='Read-only check for apps after a Bunny HTTP 500')
     sub.add_parser('enable-peers', help='Add optional paid BitTorrent Anycast endpoint to existing app')
     u = sub.add_parser('set-url', help='Store exact HTTPS URL shown in Bunny dashboard')
@@ -627,7 +697,7 @@ def main(argv=None):
     try:
         if args.command == 'setup': setup(args)
         elif args.command in ('start', 'stop'): lifecycle(args.command)
-        elif args.command == 'status': status()
+        elif args.command == 'status': status(args.show_credentials)
         elif args.command == 'doctor': doctor()
         elif args.command == 'enable-peers':
             c = load_config()
