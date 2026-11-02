@@ -195,7 +195,7 @@ class CLIConfigTests(unittest.TestCase):
             with patch.object(cli, 'CONFIG', pathlib.Path(tmp) / 'missing.json'), \
                  patch.object(cli, 'ask', return_value='secret'), patch.object(cli, 'request', side_effect=fake):
                 cli.doctor()
-        self.assertEqual(calls, ['GET'])
+        self.assertEqual(calls, ['GET', 'GET'])  # apps + limits, both read-only
 
     def test_safe_url_only(self):
         self.assertEqual(cli.find_https_url({'endpoints':[{'cdn': {'hostname': 'mc-example.bunny.run'}}]}), 'https://mc-example.bunny.run')
