@@ -27,7 +27,7 @@ curl -fsSL --retry 3 \
 python3 - "$TMP" <<'PY'
 import pathlib,sys
 source=pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
-required=('2026-11-02-registry-digest-verified', 'def registry_ids(', "def ensure_registry(", "'/mc/registries/digest'")
+required=('2026-11-02-create500-reconcile-staged-anycast', 'def registry_ids(', "def ensure_registry(", "'/mc/registries/digest'")
 if not all(x in source for x in required) or "Several GHCR registries found" in source:
     sys.exit('Downloaded CLI does not contain the required registry fix; aborting before setup.')
 print('Registry fix verified: current CLI loaded.')
