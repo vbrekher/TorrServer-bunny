@@ -1,72 +1,112 @@
 # 🎬 TorrServer Bunny
 
-**Movie night on demand. TorrServer on bunny.net Magic Containers, for Lampa and Smart TVs.**
+### Your TorrServer, on Bunny Magic Containers. No VPS required.
 
-Install in one terminal session, choose your Bunny region, and receive a private TorrServer endpoint. Start it for a movie, stop it when you're done; optionally enable an external watchdog that shuts down after **60 minutes without media streaming**.
+A beginner-friendly way to run the original **[YouROK TorrServer](https://github.com/YouROK/TorrServer)** on **[bunny.net Magic Containers](https://bunny.net/magic-containers/)** and connect it to **[Lampa](https://github.com/yumata/lampa)** on a compatible TV or device.
 
-This project wraps the open-source [TorrServer by YouROK](https://github.com/YouROK/TorrServer) with a Bunny deployment and lifecycle layer. **Huge thanks to YouROK and all TorrServer contributors.** The engine is theirs; the Bunny installer and activity gateway are the additions here. Licensed under GPL-3.0; see [LICENSE](LICENSE).
+**Install once. Start for a movie. Stop when you are done.**
 
-## Quick start
+### 📖 Choose your language / Выберите язык / Kies je taal
 
-Prerequisites: a [bunny.net](https://bunny.net/) account with Magic Containers access; a Bunny account API key; macOS or Linux with `python3` and `curl`.
+| 🇷🇺 Русский | 🇬🇧 English | 🇳🇱 Nederlands |
+| --- | --- | --- |
+| **[Полная инструкция](docs/README.ru.md)** | **[Complete user guide](docs/README.en.md)** | **[Volledige handleiding](docs/README.nl.md)** |
+| Установка, Lampa, запуск, остановка, стоимость | Setup, Lampa, start/stop, pricing | Installeren, Lampa, starten/stoppen, kosten |
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/vbrekher/TorrServer-bunny/master/install-bunny.sh -o install-bunny.sh
-sh ./install-bunny.sh
-```
+## ✨ What does it do?
 
-The wizard asks for your **Bunny API key (hidden)**, a **region** from Bunny's live region list, a TorrServer username, and whether you want the optional paid peer Anycast IP. It then asks for explicit `CREATE` approval before provisioning anything paid. It creates a single-region Magic Containers app using `ghcr.io/vbrekher/torrserver-bunny:main`, persistent configuration storage, and an HTTPS endpoint. You must **publish this public GHCR image first** using the included build workflow; initial live image availability has not been verified.
+- **No VPS:** deploy the container to one Bunny Magic Containers region.
+- **Private access:** an HTTPS CDN endpoint with your own TorrServer username/password.
+- **Manual on/off:** stop compute when you finish a film, and restart the **same** app later.
+- **Saved configuration:** a 1 GB persistent volume retains server settings.
+- **Optional BitTorrent connectivity:** add a separately billed Anycast IPv4 peer endpoint when needed.
+- **Optional idle shutdown:** an external GitHub Actions watchdog can request a stop after at least 60 minutes without movie-stream activity.
 
-Use these commands afterward:
+The original **TorrServer engine belongs to YouROK and contributors**. This project adds Bunny deployment, endpoint/credential setup, lifecycle controls, and an HTTP activity gateway. **Thank you to the TorrServer creators and community!**
 
-```bash
-~/.local/bin/torrserver-bunny start    # start on movie night
-~/.local/bin/torrserver-bunny status   # show URL + Lampa credentials
-~/.local/bin/torrserver-bunny stop     # turn off compute
-```
+## 🚀 Quick start — first installation only
 
-The installer prints the actual HTTPS endpoint if Bunny's API returns it. If not, copy it from your Magic Containers dashboard and run:
+**Requirements:** a bunny.net account with Magic Containers enabled, a Bunny account API key, and a Mac/Linux computer with Python 3 and `curl`.
 
-```bash
-~/.local/bin/torrserver-bunny set-url https://YOUR-ACTUAL-BUNNY-ENDPOINT
-```
-
-Then enter **URL, username, password** in **Lampa → Settings → TorrServer**. Do not expose an unauthenticated HTTP TorrServer directly to the internet. This deployment enables Basic auth and uses Bunny's HTTPS CDN endpoint.
-
-## Automatic idle shutdown (optional)
-
-Bunny does not provide a guaranteed built-in "stop after 60 minutes without movie streams" setting. We keep the **Bunny API key outside the container** and use a lightweight gateway to record real media stream activity. Every ~10 minutes, a scheduled GitHub Actions workflow on *your own repository/fork* can check the gateway. If no media has been transferred for at least 60 minutes and no media request is active, it issues Bunny `undeploy`. No traffic or scheduler failure causes a shutdown: **fail closed**.
+Open Terminal and run:
 
 ```bash
-# Requires gh installed, logged in and workflow on YOUR repo's default branch
-~/.local/bin/torrserver-bunny enable-github-watchdog --repo YOUR-ACCOUNT/YOUR-FORK
+curl -fsSL --retry 3 \
+  https://raw.githubusercontent.com/vbrekher/TorrServer-bunny/master/install-bunny.sh \
+  -o /tmp/install-torrserver-bunny.sh \
+  && sh /tmp/install-torrserver-bunny.sh
 ```
 
-The GitHub Actions schedule is **best effort** (can be delayed/disabled); manual stop is always available. Never install account-level Bunny credentials as Actions secrets in a repo you do not own or trust. See [full deployment and security guide](bunny/README.md).
+Follow the prompts: enter your Bunny key **privately**, choose a region, set a username, decide whether you want optional paid Anycast IPv4 for torrent peers, then type `CREATE` once to approve the billable resources.
 
-## Example pricing: 50 GB movie, European region
+**Already have a server? Do not run setup again.** Use the commands below.
 
-| Item | Example calculation |
+## ▶️ Everyday use — three commands
+
+| Action | Terminal command |
+| --- | --- |
+| **Start** the existing server | `~/.local/bin/torrserver-bunny start` |
+| **Check** status and HTTPS URL | `~/.local/bin/torrserver-bunny status` |
+| **Stop** compute after watching | `~/.local/bin/torrserver-bunny stop` |
+
+Starting and stopping are **asynchronous**; check `status` until Bunny reports `active`. A stopped app does **not** automatically wake up when you open Lampa. `stop` keeps the app and settings; allocated storage and an Anycast IP (if any) can continue to cost money.
+
+### 📺 Connect Lampa
+
+1. Run `~/.local/bin/torrserver-bunny status` and copy **`TorrServer HTTPS CDN URL`** (a domain such as `https://mc-example.bunny.run`).
+2. Run `~/.local/bin/torrserver-bunny status --show-credentials` **privately** to view your password.
+3. In **Lampa → Settings → TorrServer**, enter your HTTPS CDN URL, username and password. Try a lawfully distributable test torrent.
+
+**Do not use an Anycast IP with `:32000` as the Lampa address.** That port is for BitTorrent peers, not for HTTP playback. See the [English](docs/README.en.md), [Russian](docs/README.ru.md) or [Dutch](docs/README.nl.md) guide for screenshots-free step-by-step instructions and troubleshooting.
+
+## 💰 Example: how much for one 50 GB Blu-ray-size film?
+
+At Bunny's published Europe/North America network rate, **50 GB of outbound video data costs $0.50**. Assume a **3-hour session**, **one fully-used CPU core** and **1 GB of billed RAM**:
+
+| Item | Example cost |
 | --- | ---: |
-| 50 GB outbound HTTP media at $0.01/GB | $0.50 |
-| Three hours assuming full 1 CPU core at $0.02/core-hour | $0.06 |
-| Three hours at 1 GB RAM at $0.005/GB-hour | $0.015 |
-| **Example session subtotal** | **$0.575** |
-| 1-GB persistent volume | about $0.10/month, even stopped |
-| Optional Anycast IPv4 for inbound TCP/UDP peers | $2/month, billed per minute |
+| 50 GB outgoing data × $0.01/GB | **$0.50** |
+| 3 hours CPU × 1 core × $0.02/core-hour | **$0.06** |
+| 3 hours RAM × 1 GB × $0.005/GB-hour | **$0.015** |
+| **Illustrative movie-session subtotal** | **$0.575 ≈ $0.58** |
+| Persistent 1 GB configuration volume | **$0.10 per month** |
+| Optional Anycast IPv4 | **$2 per full month** (prorated by minute) |
 
-Torrent peer upload and other outbound traffic are additional; CPU is billed on actual usage, so the CPU example is an assumption, not a fixed fee. See [published Bunny rates](https://bunny.net/magic-containers/).
+If you watch **one such film in a month** and keep those allocated resources for all 30 days, the example works out to **about $0.68 without Anycast** or **about $2.68 with Anycast**. This is **not a fixed bill**: actual CPU/RAM use, additional torrent peer upload/seeding, repeated data, any applicable CDN charges, region, taxes and other Bunny products or account minimums can change the result. An allocated Anycast IP may remain billable when the container is stopped.
 
-## What this project does / doesn't do
+Rates checked **2 November 2026**: [Bunny Magic Containers pricing](https://bunny.net/magic-containers/) · [Bunny CDN pricing](https://bunny.net/pricing/cdn/). Full assumptions and examples are explained in all three language guides.
 
-- ✅ Region selection, HTTPS endpoint creation, Basic auth, one-region deployment, start/stop/status, persistent configuration
-- ✅ Built-in media activity gateway and optional externally scheduled 60-minute idle shutdown
-- ✅ Linux/macOS self-service installer without running Docker or a VPS
-- ⚠️ An image must be published and made public in GitHub Container Registry before the deployment works
-- ⚠️ Real Bunny provisioning, public endpoint URL response, BitTorrent peer connectivity, Samsung Tizen/Lampa playback and accurate idle-shutdown billing are **not yet live-tested**
-- ⚠️ Basic auth over HTTPS requires compatible Lampa configuration. A CDN/cache or browser CORS issue may need account-specific adjustments
-- ❌ No copyrighted videos, pirate catalogs, or media are hosted or distributed by this repository
+## 🕒 Optional 60-minute idle stop
 
-For a full explanation, screenshots from actual setup after verified deployment, the runtime architecture and test instructions, see [bunny/README.md](bunny/README.md). The [original TorrServer documentation](https://github.com/YouROK/TorrServer) remains the reference for torrent engine features.
+The built-in HTTP gateway records media activity. You can optionally add a **scheduled GitHub Actions watchdog** in a repository **you control** to request `undeploy` when there has been no movie-stream activity for at least 60 minutes.
 
-[Русское руководство](docs/README.ru.md) · [Bunny Magic Containers documentation](https://bunny.net/docs/magic-containers)
+```bash
+~/.local/bin/torrserver-bunny enable-github-watchdog --repo YOUR-ACCOUNT/YOUR-REPOSITORY
+```
+
+Requires the [GitHub CLI](https://cli.github.com/) and `.github/workflows/idle-watchdog.yml` on your own repository's default branch. Review the workflow before entering `ENABLE`: this action stores your **Bunny account API key** in that repository's GitHub Actions secrets. GitHub scheduled runs are **best effort** and can be delayed or disabled, so this is **not** a guaranteed shutdown or billing cutoff.
+
+## ✅ Verification status
+
+| Area | Status |
+| --- | --- |
+| Real Magic Containers app creation in Bunny | **Confirmed** on 2 Nov 2026 |
+| Bunny reported an `active` application and HTTPS CDN domain | **Confirmed** |
+| GitHub Actions unit tests for CLI and Go gateway | **Passing** in latest verified CI |
+| Real torrent playback on Samsung Tizen / Lampa | **Not yet verified** |
+| Real scheduled 60-minute shutdown on Bunny | **Not yet verified** |
+
+The existing source includes GitHub Actions checks for Python CLI and Go gateway; local mocks and a Bunny `active` state cannot substitute for a physical-TV playback test.
+
+## 🔐 Safety and technical details
+
+API keys stay in a restricted local configuration file except when **you explicitly opt in** to storing them as GitHub Actions secrets for the idle watchdog. Keep your Lampa password private, do not publish credentials in screenshots, and do not grant strangers access to the repository that holds account-level secrets.
+
+- **Technical deployment and troubleshooting:** [bunny/README.md](bunny/README.md).
+- **TorrServer upstream:** [YouROK/TorrServer](https://github.com/YouROK/TorrServer).
+- **Lampa upstream:** [yumata/lampa](https://github.com/yumata/lampa).
+- **License:** [GPL-3.0](LICENSE). No films, torrent catalogs or copyrighted media are distributed by this repository. Use the software only with content you are entitled to access and share.
+
+---
+
+**Made possible by the work of YouROK and the open-source TorrServer community. Thank you!**
