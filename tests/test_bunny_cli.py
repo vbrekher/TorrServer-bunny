@@ -200,6 +200,8 @@ class CLIConfigTests(unittest.TestCase):
     def test_safe_url_only(self):
         self.assertEqual(cli.find_https_url({'endpoints':[{'cdn': {'hostname': 'mc-example.bunny.run'}}]}), 'https://mc-example.bunny.run')
         self.assertIsNone(cli.find_https_url({'id': 'id-1234', 'endpoints': []}))
+        self.assertEqual(cli.find_https_url({'items': [{'publicHost': 'mc-live.bunny.run'}]}), 'https://mc-live.bunny.run')
+        self.assertEqual(cli.find_https_url({'displayEndpoint': {'address': 'mc-secondary.bunny.run', 'type': 'CDN'}}), 'https://mc-secondary.bunny.run')
 
     def test_idle_active_prevents_shutdown(self):
         now = time.time()
