@@ -118,8 +118,10 @@ def find_https_url(data):
         if isinstance(obj, dict):
             for k, v in obj.items():
                 key = k.lower()
-                if isinstance(v, str) and v and any(token in key for token in ('hostname', 'publicurl', 'endpointurl', 'cdnurl')):
+                if isinstance(v, str) and v and any(token in key for token in ('hostname', 'publichost', 'publicurl', 'endpointurl', 'cdnurl')):
                     candidates.append(v)
+                if key == 'displayendpoint' and isinstance(v, dict) and isinstance(v.get('address'), str):
+                    candidates.append(v['address'])
                 if isinstance(v, (dict, list)):
                     walk(v)
         elif isinstance(obj, list):
