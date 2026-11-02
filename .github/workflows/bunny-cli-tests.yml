@@ -1,0 +1,25 @@
+name: Bunny CLI Safety Tests
+on:
+  push:
+    branches: [master]
+    paths:
+      - bunny/cli.py
+      - tests/test_bunny_cli.py
+      - .github/workflows/bunny-cli-tests.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cli-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify CLI syntax and run isolated API mocks
+        run: |
+          python3 -m py_compile bunny/cli.py tests/test_bunny_cli.py
+          python3 -m unittest discover -s tests -p 'test_bunny_cli.py' -v
+          sh -n install-bunny.sh
+      - name: Test HTTP gateway
+        run: |
+          cd bunny
+          go test ./... -count=1
