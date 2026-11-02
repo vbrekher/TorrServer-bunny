@@ -1,0 +1,23 @@
+name: Stop TorrServer after 60 minutes without media streaming
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: torrserver-bunny-idle-watchdog
+  cancel-in-progress: false
+jobs:
+  idle-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check media activity and request undeploy when idle
+        env:
+          BUNNY_API_KEY: ${{ secrets.BUNNY_API_KEY }}
+          BUNNY_APP_ID: ${{ secrets.BUNNY_APP_ID }}
+          BUNNY_PUBLIC_URL: ${{ secrets.BUNNY_PUBLIC_URL }}
+          BUNNY_WATCHDOG_TOKEN: ${{ secrets.BUNNY_WATCHDOG_TOKEN }}
+        run: python3 bunny/cli.py idle-check --remote --minutes 60

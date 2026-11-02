@@ -1,0 +1,13 @@
+# Upstream TorrServer code and upstream Docker image are owned by YouROK/TorrServer.
+# This project adds only an HTTPS-edge activity gateway and a credential bootstrap.
+FROM golang:1.25-alpine AS gateway
+WORKDIR /src
+COPY bunny/gateway.go ./gateway.go
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/torr-bunny-gateway gateway.go
+
+FROM ghcr.io/yourok/torrserver:latest
+COPY --from=gateway /out/torr-bunny-gateway /usr/local/bin/torr-bunny-gateway
+COPY bunny/entrypoint.sh /bunny-entrypoint.sh
+RUN chmod 755 /bunny-entrypoint.sh /usr/local/bin/torr-bunny-gateway
+EXPOSE 8080 32000/tcp 32000/udp
+ENTRYPOINT ["/bunny-entrypoint.sh"]
