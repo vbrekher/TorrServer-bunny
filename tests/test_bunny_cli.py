@@ -26,6 +26,24 @@ class CLIConfigTests(unittest.TestCase):
         self.assertEqual(len(x['containerTemplates'][0]['endpoints']), 1)
         self.assertEqual(len(cli.build_payload('DE', 'lampa', 'pw', 'secret', public_peers=True, image_registry_id='123')['containerTemplates'][0]['endpoints']), 2)
 
+    def test_create_payload_matches_official_cli_required_shape(self):
+        # Official BunnyWay/cli packages/config/src/convert.ts uses precisely
+        # allowedRegionIds + requiredRegionIds and CDN mapping without protocols.
+        p = cli.build_payload('AMS', 'letin', 'pwd', 'token', image_registry_id='github')
+        self.assertEqual(set(p), {'name', 'runtimeType', 'autoScaling', 'regionSettings',
+                                  'containerTemplates', 'volumes'})
+        self.assertEqual(p['regionSettings'], {
+            'allowedRegionIds': ['AMS'], 'requiredRegionIds': ['AMS']})
+        c = p['containerTemplates'][0]
+        self.assertEqual(c['image'], 'ghcr.io/vbrekher/torrserver-bunny:main')
+        self.assertEqual(c['imageRegistryId'], 'github')
+        self.assertEqual(c['imagePullPolicy'], 'always')
+        self.assertEqual(c['endpoints'], [{
+            'displayName': 'torrserver-https',
+            'cdn': {'isSslEnabled': True, 'portMappings': [{'containerPort': 8080, 'exposedPort': 80}]}
+        }])
+        self.assertEqual(p['volumes'], [{'name': 'config', 'size': 1}])
+
     def test_public_ghcr_reference_validation(self):
         with self.assertRaises(cli.DeploymentError):
             cli.split_image('ghcr.io/vbrekher/torrserver-bunny')
