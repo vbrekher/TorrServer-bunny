@@ -30,7 +30,7 @@ Deploy on [bunny.net Magic Containers](https://bunny.net/magic-containers/), con
 | 🇷🇺 **Русский** | 🇬🇧 **English** | 🇳🇱 **Nederlands** |
 | :---: | :---: | :---: |
 | **[Руководство пользователя →](docs/README.ru.md)** | **[User guide →](docs/README.en.md)** | **[Gebruikershandleiding →](docs/README.nl.md)** |
-| Installation · Lampa · Pricing | Installation · Lampa · Pricing | Installatie · Lampa · Kosten |
+| Установка · Lampa · Цены | Setup · Lampa · Pricing | Installatie · Lampa · Kosten |
 
 </div>
 
@@ -65,9 +65,9 @@ Stop compute after a film. Start the **same application** again later, with its 
 <tr>
 <td width="33%" valign="top">
 
-### 🔒 Private by default
+### 🔒 Access controlled
 
-TorrServer credentials are stored locally. The Bunny API key stays off the running container.
+TorrServer login credentials are saved locally. The HTTPS endpoint uses authentication; the Bunny API key stays out of the container.
 
 </td>
 <td width="33%" valign="top">
