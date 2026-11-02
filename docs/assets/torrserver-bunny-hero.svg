@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 560" width="1600" height="560" role="img" aria-labelledby="title desc">
+  <title id="title">TorrServer Bunny — Your server. Your movie night.</title>
+  <desc id="desc">An illustrated banner for the open-source TorrServer Bunny project, connecting a personal server to a TV with start, play, and stop controls.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0C1025"/><stop offset="0.58" stop-color="#111A35"/><stop offset="1" stop-color="#101628"/>
+    </linearGradient>
+    <radialGradient id="aurora" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#765DF5" stop-opacity=".46"/><stop offset=".58" stop-color="#604BF3" stop-opacity=".12"/><stop offset="1" stop-color="#604BF3" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="tealAura" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#26D6C8" stop-opacity=".23"/><stop offset="1" stop-color="#26D6C8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#AF9BFF"/><stop offset="1" stop-color="#6FEADD"/>
+    </linearGradient>
+    <linearGradient id="accentB" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#A998FF"/><stop offset="1" stop-color="#6DE3D8"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1B2541"/><stop offset="1" stop-color="#151D34"/>
+    </linearGradient>
+    <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#98B0DC" opacity=".18"/>
+    </pattern>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#02040C" flood-opacity=".52"/>
+    </filter>
+  </defs>
+  <rect width="1600" height="560" fill="url(#bg)"/>
+  <rect width="1600" height="560" fill="url(#dots)"/>
+  <circle cx="680" cy="62" r="450" fill="url(#aurora)"/>
+  <circle cx="1430" cy="450" r="420" fill="url(#tealAura)"/>
+  <path d="M0 508 C240 445 390 630 687 520 S1140 428 1600 510" fill="none" stroke="#9C90F7" stroke-opacity=".16" stroke-width="2"/>
+  <path d="M0 530 C250 459 481 650 787 530 S1187 471 1600 547" fill="none" stroke="#5CE7D7" stroke-opacity=".12" stroke-width="2"/>
+  <g transform="translate(112 68)">
+    <rect width="62" height="62" rx="19" fill="#253258" stroke="#A6A5F9" stroke-opacity=".55"/>
+    <path d="M20 16 L47 31 L20 46 Z" fill="url(#accent)"/>
+    <circle cx="48" cy="11" r="5" fill="#63E6CF"/>
+    <text x="80" y="25" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#C8D3F2" letter-spacing="4">OPEN SOURCE</text>
+    <text x="80" y="49" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#90A5CA" letter-spacing="2.5">MAGIC CONTAINERS EDITION</text>
+  </g>
+  <text x="108" y="250" font-family="Arial, Helvetica, sans-serif" font-size="87" font-weight="800" fill="#FFFFFF" letter-spacing="-3">TorrServer</text>
+  <text x="108" y="343" font-family="Arial, Helvetica, sans-serif" font-size="92" font-weight="800" fill="url(#accentB)" letter-spacing="-3">Bunny<tspan fill="#FFFFFF">.</tspan></text>
+  <text x="112" y="401" font-family="Arial, Helvetica, sans-serif" font-size="25" fill="#C6D2EA">Your server. Your movie night. Your control.</text>
+  <rect x="109" y="445" width="166" height="41" rx="20.5" fill="#24294A" stroke="#716BF6" stroke-opacity=".55"/>
+  <circle cx="134" cy="466" r="6" fill="#78E3D2"/>
+  <text x="151" y="472" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#E0EAFE">NO VPS</text>
+  <rect x="289" y="445" width="197" height="41" rx="20.5" fill="#24294A" stroke="#716BF6" stroke-opacity=".55"/>
+  <text x="309" y="472" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#E0EAFE">HTTPS + LAMPA</text>
+  <rect x="500" y="445" width="216" height="41" rx="20.5" fill="#24294A" stroke="#716BF6" stroke-opacity=".55"/>
+  <text x="519" y="472" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#E0EAFE">START / STOP</text>
+  <g filter="url(#shadow)">
+    <rect x="896" y="80" width="598" height="410" rx="26" fill="url(#panel)" stroke="#53618A" stroke-opacity=".7" stroke-width="1.5"/>
+    <path d="M922 81 H1468 A26 26 0 0 1 1494 107 V142 H896 V107 A26 26 0 0 1 922 81 Z" fill="#273151" opacity=".9"/>
+    <circle cx="930" cy="110" r="6" fill="#F38392"/>
+    <circle cx="952" cy="110" r="6" fill="#FAC277"/>
+    <circle cx="974" cy="110" r="6" fill="#69DFC4"/>
+    <text x="1013" y="116" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" fill="#AEBFE0" letter-spacing="1.7">MOVIE NIGHT FLOW</text>
+    <path d="M964 209 V382" stroke="#6F81A7" stroke-width="3" stroke-dasharray="5 10" opacity=".5"/>
+    <circle cx="964" cy="207" r="25" fill="#4E4888" stroke="#A197FF" stroke-width="2"/>
+    <path d="M958 196 L975 207 L958 218 Z" fill="#FFFFFF"/>
+    <text x="1012" y="200" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="700" fill="#F6F8FF">Start your server</text>
+    <text x="1013" y="226" font-family="monospace" font-size="16" fill="#91EADB">torrserver-bunny start</text>
+    <line x1="1011" x2="1452" y1="252" y2="252" stroke="#637398" stroke-opacity=".28"/>
+    <circle cx="964" cy="295" r="25" fill="#205C67" stroke="#64E7D3" stroke-width="2"/>
+    <rect x="950" y="284" width="28" height="20" rx="3" fill="none" stroke="#F7FFFD" stroke-width="2.5"/>
+    <path d="M960 307 H968" stroke="#F7FFFD" stroke-width="2.5" stroke-linecap="round"/>
+    <text x="1012" y="289" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="700" fill="#F6F8FF">Connect with Lampa</text>
+    <text x="1013" y="315" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#AFBFD9">Private HTTPS CDN endpoint</text>
+    <line x1="1011" x2="1452" y1="340" y2="340" stroke="#637398" stroke-opacity=".28"/>
+    <circle cx="964" cy="383" r="25" fill="#4E4888" stroke="#A197FF" stroke-width="2"/>
+    <rect x="953" y="372" width="22" height="22" rx="4" fill="#FFFFFF"/>
+    <text x="1012" y="376" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="700" fill="#F6F8FF">Stop when you're done</text>
+    <text x="1013" y="404" font-family="monospace" font-size="16" fill="#91EADB">torrserver-bunny stop</text>
+    <rect x="1011" y="439" width="442" height="1" fill="#627297" opacity=".29"/>
+    <text x="1013" y="467" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#93A7CB">One installation · Same server every time</text>
+  </g>
+</svg>
