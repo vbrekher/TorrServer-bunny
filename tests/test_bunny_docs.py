@@ -2,6 +2,7 @@
 import pathlib
 import re
 import unittest
+import xml.etree.ElementTree as ET
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOCS = [
@@ -30,6 +31,33 @@ class DocumentationTests(unittest.TestCase):
                         continue
                     target = (page.parent / path).resolve()
                     self.assertTrue(target.is_file(), f"{page}: broken link {link}")
+
+    def test_github_hero_is_accessible_valid_self_contained_svg(self):
+        hero = ROOT / "docs/assets/torrserver-bunny-hero.svg"
+        self.assertTrue(hero.is_file())
+        root = ET.parse(hero).getroot()
+        self.assertTrue(root.tag.endswith("svg"))
+        self.assertEqual(root.attrib.get("viewBox"), "0 0 1600 560")
+        self.assertTrue(any(el.tag.endswith("title") for el in root.iter()))
+        self.assertTrue(any(el.tag.endswith("desc") for el in root.iter()))
+        svg = hero.read_text(encoding="utf-8")
+        self.assertNotIn("<script", svg.lower())
+        self.assertNotIn("http://", svg.replace('http://www.w3.org/2000/svg',''))
+        landing = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn('src="docs/assets/torrserver-bunny-hero.svg"', landing)
+        for lang in ("ru", "en", "nl"):
+            self.assertIn(f"docs/README.{lang}.md", landing)
+
+    def test_landing_page_retains_first_time_safety_and_truth(self):
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        for phrase in (
+            "torrserver-bunny start", "torrserver-bunny stop",
+            "torrserver-bunny status", "status --show-credentials",
+            "CREATE", "Anycast", ":32000", "not yet verified",
+            "50 GB", "$0.58", "$2.68", "YouROK",
+            "bunny-cli-tests.yml",
+        ):
+            self.assertIn(phrase, text)
 
     def test_all_three_languages_cover_basic_usage(self):
         for lang in ("ru", "en", "nl"):
