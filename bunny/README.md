@@ -28,6 +28,14 @@ After provisioning, the installer attempts to read the HTTPS CDN hostname return
 
 Use the URL, username and password printed by `status` in **Lampa → Settings → TorrServer**. For compatibility tests, check `https://ACTUAL-ENDPOINT/echo` and try a permitted, legally distributed torrent. Chrome and Samsung Tizen have differing CORS, mixed-content and media requirements; playback **has not been verified** on a physical Samsung TV.
 
+## Recovering from POST /mc/apps HTTP 500
+
+**Do not repeatedly create paid apps.** First run `~/.local/bin/torrserver-bunny doctor`, which lists existing apps, numeric GHCR registry IDs, and account resource quotas without creating anything. Inspect Magic Containers in the Bunny dashboard as well. An HTTP 500 may be ambiguous even if the immediate listing shows zero results.
+
+The Bunny registry digest endpoint can accept a symbolic registry alias such as `github`, but that does **not** establish it as a valid `containerTemplates[].imageRegistryId` for app creation. The supported official CLI enumerates connected registries with numeric IDs. This installer now requires a numeric `ghcr.io` registry ID returned by `GET /mc/registries`, checks the image digest through that exact numeric ID, and refuses to create if none works. Never delete or replace GHCR connections used by other apps.
+
+A successful mocked CI test does not prove that Bunny production will accept the payload. If Bunny still returns 500 after selecting a real numeric registry ID, stop creation and send Bunny Support the UTC time, `POST /mc/apps`, HTTP 500 response, region and a redacted payload (remove all API credentials, environment variables, authentication tokens and personal values). The support team can inspect server-side causes that are not exposed by the public API.
+
 ## 60-minute idle shutdown without an always-on container
 
 Bunny's autoscaling **is not** an idle-shutdown timer. `undeploy` is the supported way to stop running containers while keeping the app and its config volume.
