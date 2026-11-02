@@ -339,6 +339,21 @@ def doctor():
         raise DeploymentError('Bunny API key required')
     items = named_apps(key)
     print('Bunny Magic Containers: exact torrserver-bunny apps found:', len(items))
+    try:
+        limits = request('GET', '/mc/limits', key)
+        if isinstance(limits, dict):
+            for field in ('existingNumberOfApplications', 'maxNumberOfApplications',
+                          'maxNumberOfVolumesPerApplication', 'maxVolumeSize',
+                          'maxNumberOfRegionsPerApplication'):
+                val = limits.get(field)
+                if type(val) is int:
+                    print('  Bunny limit ' + field + ':', val)
+            existing = limits.get('existingNumberOfApplications')
+            maximum = limits.get('maxNumberOfApplications')
+            if type(existing) is int and type(maximum) is int and existing >= maximum:
+                print('WARNING: Bunny application quota is full. Do not attempt CREATE.')
+    except DeploymentError as exc:
+        print('Bunny limit information unavailable (read-only check):', str(exc)[:180])
     for app in items:
         print('  App ID:', app.get('id', '(unknown)'), '| state:', app.get('status', '(unknown)'))
     if not items:
