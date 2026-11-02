@@ -26,7 +26,7 @@ After provisioning, the installer attempts to read the HTTPS CDN hostname return
 ~/.local/bin/torrserver-bunny set-url https://ACTUAL-ENDPOINT-FROM-BUNNY
 ```
 
-Use the URL, username and password printed by `status` in **Lampa → Settings → TorrServer**. For compatibility tests, check `https://ACTUAL-ENDPOINT/echo` and try a permitted, legally distributed torrent. Chrome and Samsung Tizen have differing CORS, mixed-content and media requirements; playback **has not been verified** on a physical Samsung TV.
+Use the **HTTPS CDN URL**, username and locally stored password in **Lampa → Settings → TorrServer**. The ordinary `status` command hides the password; run `torrserver-bunny status --show-credentials` only on your own computer if needed. **Never enter the Anycast BitTorrent peer endpoint (an IP address with :32000) as the Lampa URL.** After app creation, `status` refreshes endpoint inventory and repairs an Anycast IP accidentally saved as the HTTPS URL. If the CDN hostname is not yet provisioned, check the Bunny app's `torrserver-https` CDN endpoint. Do not create another app. For compatibility tests, check `https://ACTUAL-ENDPOINT/echo` and try a permitted, legally distributed torrent. Chrome and Samsung Tizen have differing CORS, mixed-content and media requirements; playback **has not been verified** on a physical Samsung TV.
 
 ## Recovering from POST /mc/apps HTTP 500
 
