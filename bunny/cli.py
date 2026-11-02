@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 API = 'https://api.bunny.net'
 IMAGE = 'ghcr.io/vbrekher/torrserver-bunny:main'
 CONFIG = pathlib.Path.home() / '.config' / 'torrserver-bunny' / 'config.json'
-CLI_BUILD = '2026-11-02-numeric-ghcr-registry-id'
+CLI_BUILD = '2026-11-02-cdn-endpoint-repair'
 USER_AGENT = 'TorrServer-bunny/0.2 (+https://github.com/vbrekher/TorrServer-bunny)'
 
 
