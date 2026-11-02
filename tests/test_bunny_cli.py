@@ -34,21 +34,37 @@ class CLIConfigTests(unittest.TestCase):
         with self.assertRaises(cli.DeploymentError):
             cli.build_payload('DE', 'lampa', 'pwd', 'token')
 
-    def test_reuses_exact_existing_ghcr_registry(self):
-        data = {'items': [{'id': 5, 'hostName': 'docker.io'}, {'id': 91, 'hostName': 'ghcr.io'}]}
-        with patch.object(cli, 'request') as req:
-            self.assertEqual(cli.ensure_registry('secret', data), '91')
-            req.assert_not_called()
+    def test_multiple_registries_are_not_deleted(self):
+        data = {'items': [{'id': 1, 'hostName': 'docker.io'}, {'id': 91, 'hostName': 'ghcr.io'},
+                          {'id': 92, 'hostName': 'https://ghcr.io/'}, {'id': 91, 'hostName': 'ghcr.io'}]}
+        self.assertEqual(cli.registry_ids(data), ['91', '92'])
+        lookups = []
+        def remote(method, path, key, payload):
+            self.assertEqual((method, path), ('POST', '/mc/registries/digest'))
+            lookups.append(payload['registryId'])
+            if payload['registryId'] in ('github', '91'):
+                raise cli.DeploymentError('Not visible in this registry')
+            return {'digest': 'sha256:' + 'a'*64}
+        with patch.object(cli, 'request', side_effect=remote) as req:
+            self.assertEqual(cli.ensure_registry('secret', data), '92')
+            self.assertEqual(lookups, ['github', '91', '92'])
+            self.assertEqual(req.call_count, 3)
 
-    def test_registers_public_oci_only_if_missing(self):
-        with patch.object(cli, 'request', return_value={'id': 92, 'status': 'saved'}) as req:
-            self.assertEqual(cli.ensure_registry('secret', {'items': []}), '92')
-            req.assert_called_once_with('POST', '/mc/registries', 'secret', {
-                'displayName': 'TorrServer Bunny GHCR', 'type': 'oci', 'hostName': 'ghcr.io'
-            })
+    def test_builtin_public_ghcr_preferred_no_registry_mutation(self):
+        data = {'items': [{'id': 91, 'hostName': 'ghcr.io'}, {'id': 92, 'hostName': 'ghcr.io'}]}
+        with patch.object(cli, 'request', return_value={'digest': 'sha256:'+'b'*64}) as req:
+            self.assertEqual(cli.ensure_registry('secret', data), 'github')
+            self.assertEqual(req.call_count, 1)
+            self.assertEqual(req.call_args.args[1], '/mc/registries/digest')
 
     def test_registry_fail_closed_before_app_post(self):
-        with patch.object(cli, 'request', return_value={'id': None, 'status': 'invalidInput'}):
+        with patch.object(cli, 'request', side_effect=cli.DeploymentError('Denied')) as req:
+            with self.assertRaises(cli.DeploymentError):
+                cli.ensure_registry('secret', {'items': [{'id': 91, 'hostName': 'ghcr.io'}]})
+            self.assertEqual(req.call_count, 2)
+
+    def test_rejects_malformed_digest(self):
+        with patch.object(cli, 'request', return_value={'digest': 'not a sha256'}):
             with self.assertRaises(cli.DeploymentError):
                 cli.ensure_registry('secret', {'items': []})
 
@@ -62,7 +78,8 @@ class CLIConfigTests(unittest.TestCase):
         def fake_request(method, path, key=None, payload=None, **kwargs):
             requests.append((method, path, payload))
             if method == 'GET' and path == '/mc/apps': return {'items': []}
-            if method == 'GET' and path == '/mc/registries': return {'items': [{'id': 7, 'hostName': 'ghcr.io'}]}
+            if method == 'GET' and path == '/mc/registries': return {'items': [{'id': 7, 'hostName': 'ghcr.io'}, {'id': 8, 'hostName': 'ghcr.io'}]}
+            if method == 'POST' and path == '/mc/registries/digest': return {'digest': 'sha256:'+'c'*64}
             if method == 'GET' and path == '/mc/regions': return {'items': [{'id': 'DE', 'name': 'Germany'}]}
             if method == 'POST' and path == '/mc/apps': return {'id': 'app-123'}
             if method == 'POST' and path.endswith('/deploy'): return {}
@@ -75,7 +92,7 @@ class CLIConfigTests(unittest.TestCase):
                 cli.setup(SimpleNamespace(image=cli.IMAGE, no_deploy=False))
                 app_posts = [payload for method, path, payload in requests if method == 'POST' and path == '/mc/apps']
                 self.assertEqual(len(app_posts), 1)
-                self.assertEqual(app_posts[0]['containerTemplates'][0]['imageRegistryId'], '7')
+                self.assertEqual(app_posts[0]['containerTemplates'][0]['imageRegistryId'], 'github')
                 self.assertEqual(len(app_posts[0]['containerTemplates'][0]['endpoints']), 2)
 
     def test_safe_url_only(self):
