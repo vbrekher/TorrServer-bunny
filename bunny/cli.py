@@ -155,12 +155,16 @@ def split_image(image):
                 imagePullPolicy='always')
 
 
-def registry_id(registries, host='ghcr.io'):
-    """Never guess a registry ID: use only an exact hostname returned by Bunny."""
-    if not isinstance(registries, dict) or not isinstance(registries.get('items'), list):
+def registry_ids(registries, host='ghcr.io'):
+    """Return existing matching registry IDs, without mutating shared Bunny registries."""
+    if isinstance(registries, list):
+        entries = registries
+    elif isinstance(registries, dict) and isinstance(registries.get('items'), list):
+        entries = registries['items']
+    else:
         raise DeploymentError('Unexpected Bunny registry response; refusing to create a paid app')
     matches = []
-    for entry in registries['items']:
+    for entry in entries:
         if not isinstance(entry, dict):
             continue
         registered_host = str(entry.get('hostName') or '').strip().lower().rstrip('/')
@@ -168,24 +172,37 @@ def registry_id(registries, host='ghcr.io'):
             registered_host = registered_host[8:]
         value = entry.get('id')
         if registered_host == host and isinstance(value, (str, int)) and not isinstance(value, bool) and str(value):
-            matches.append(str(value))
+            if str(value) not in matches:
+                matches.append(str(value))
+    return matches
+
+
+def ensure_registry(key, existing, image=IMAGE):
+    """Pick an existing or built-in GHCR registry that can resolve the actual image.
+
+    The digest check is a read-only operation in Bunny: no new registry or paid app
+    is created here. Multiple GHCR connections are normal and never deleted.
+    """
+    fields = split_image(image)
+    matches = registry_ids(existing)
     if len(matches) > 1:
-        raise DeploymentError('Several GHCR registries found. Remove duplicate registry entries in Bunny before setup.')
-    return matches[0] if matches else None
-
-
-def ensure_registry(key, existing):
-    found = registry_id(existing)
-    if found:
-        print('Using existing Bunny GHCR registry:', found)
-        return found
-    print('Registering public ghcr.io as an OCI registry (no GitHub token required).')
-    result = request('POST', '/mc/registries', key, {
-        'displayName': 'TorrServer Bunny GHCR', 'type': 'oci', 'hostName': 'ghcr.io',
-    })
-    if not isinstance(result, dict) or result.get('status') != 'saved' or not isinstance(result.get('id'), (str, int)) or isinstance(result.get('id'), bool) or not str(result.get('id')):
-        raise DeploymentError('Bunny did not confirm GHCR registry registration. Check Magic Containers → Registries in Bunny; app NOT created.')
-    return str(result['id'])
+        print(f'Found {len(matches)} GHCR registry connections. Checking image access without changing them.')
+    candidates = list(dict.fromkeys(['github', *matches]))
+    for candidate in candidates:
+        try:
+            result = request('POST', '/mc/registries/digest', key, {
+                'registryId': candidate, 'imageName': fields['imageName'],
+                'imageNamespace': fields['imageNamespace'], 'tag': fields['imageTag'],
+            })
+        except DeploymentError:
+            print(f'  Registry {candidate}: image lookup unavailable; trying next.')
+            continue
+        digest = result.get('digest') if isinstance(result, dict) else None
+        if isinstance(digest, str) and re.fullmatch(r'sha256:[0-9a-fA-F]{64}', digest):
+            print(f'  Registry {candidate}: image verified.')
+            return candidate
+        print(f'  Registry {candidate}: no valid image digest returned; trying next.')
+    raise DeploymentError('No GHCR registry can verify this image. Confirm ghcr.io package is PUBLIC and tag exists; no Bunny app or registry was created. Do not delete existing registries.')
 
 
 def check_no_duplicate_app(key):
@@ -253,7 +270,7 @@ def setup(args):
     print('Checking Bunny API, existing apps, GHCR registry and available regions...')
     check_no_duplicate_app(key)
     existing_registries = request('GET', '/mc/registries', key)
-    registry_id(existing_registries)  # validate response BEFORE asking for paid-app consent
+    reg_id = ensure_registry(key, existing_registries, args.image)
     regions = normalize_regions(request('GET', '/mc/regions', key))
     for i, (code, title) in enumerate(regions, 1):
         print(f'  {i:>2}. {title} ({code})')
@@ -273,11 +290,11 @@ def setup(args):
     peer = ask('Expose BitTorrent TCP/UDP peer port via paid Anycast IPv4? (y/N)', 'N').lower() == 'y'
     print('\nCreating one-region application (persistent config volume: 1 GB billed while stopped).')
     print('Image:', image_fields['image'], '(public GHCR)')
-    print('This may register GHCR and will create paid Bunny resources. Type CREATE to continue.')
+    print('Registry already verified:', reg_id)
+    print('This will create paid Bunny resources. Type CREATE to continue.')
     if ask('Confirm') != 'CREATE':
         print('Canceled. No application created.')
         return
-    reg_id = ensure_registry(key, existing_registries)
     # Refresh app listing immediately before POST to avoid accidental duplicates.
     check_no_duplicate_app(key)
     payload = build_payload(region, user, password, monitor_token, args.image, peer, reg_id)
