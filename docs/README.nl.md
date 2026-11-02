@@ -66,7 +66,7 @@ Open **Lampa → Instellingen → TorrServer** (de exacte menunamen kunnen per v
 | Gebruikersnaam | Bijvoorbeeld `lampa`, of je eigen naam |
 | Wachtwoord | Het wachtwoord uit de installer of `--show-credentials` |
 
-**Gebruik niet het verkeerde adres.** Een adres zoals `https://109.224.231.152:32000` is **niet voor Lampa**. Poort `32000` is voor torrentpeers. Voor Lampa gebruik je het **HTTPS CDN-domein**, zonder `:32000`.
+**Gebruik niet het verkeerde adres.** Een adres zoals `https://203.0.113.10:32000` is **niet voor Lampa**. Poort `32000` is voor torrentpeers. Voor Lampa gebruik je het **HTTPS CDN-domein**, zonder `:32000`.
 
 Ontbreekt het HTTPS-adres nog? Ga naar **Bunny Dashboard → Magic Containers → jouw app → Endpoints** en zoek `torrserver-https`. Je kunt het echte HTTPS-domein zelf opslaan:
 
