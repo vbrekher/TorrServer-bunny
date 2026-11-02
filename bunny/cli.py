@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 API = 'https://api.bunny.net'
 IMAGE = 'ghcr.io/vbrekher/torrserver-bunny:main'
 CONFIG = pathlib.Path.home() / '.config' / 'torrserver-bunny' / 'config.json'
-CLI_BUILD = '2026-11-02-registry-digest-verified'
+CLI_BUILD = '2026-11-02-create500-reconcile-staged-anycast'
 USER_AGENT = 'TorrServer-bunny/0.2 (+https://github.com/vbrekher/TorrServer-bunny)'
 
 
@@ -206,18 +206,146 @@ def ensure_registry(key, existing, image=IMAGE):
     raise DeploymentError('No GHCR registry can verify this image. Confirm ghcr.io package is PUBLIC and tag exists; no Bunny app or registry was created. Do not delete existing registries.')
 
 
+def list_apps(key):
+    """Retrieve the whole application list before any potentially billable create."""
+    items, seen, cursor = [], set(), None
+    for _ in range(100):
+        path = '/mc/apps?limit=100'
+        if cursor:
+            path += '&nextCursor=' + urllib.parse.quote(cursor, safe='')
+        data = request('GET', path, key)
+        if not isinstance(data, dict) or not isinstance(data.get('items'), list):
+            raise DeploymentError('Bunny app listing has an unexpected format; refusing duplicate-prone creation')
+        items.extend(data['items'])
+        cursor = data.get('cursor')
+        if cursor is None or cursor == '':
+            return items
+        if not isinstance(cursor, str) or cursor in seen:
+            raise DeploymentError('Bunny app listing cursor invalid; refusing duplicate-prone creation')
+        seen.add(cursor)
+    raise DeploymentError('Bunny app listing exceeded safe pagination limit')
+
+
+def named_apps(key):
+    return [a for a in list_apps(key) if isinstance(a, dict) and a.get('name') == 'torrserver-bunny']
+
+
 def check_no_duplicate_app(key):
-    result = request('GET', '/mc/apps', key)
-    if isinstance(result, dict) and isinstance(result.get('items'), list):
-        for app in result['items']:
-            if isinstance(app, dict) and app.get('name') == 'torrserver-bunny':
-                raise DeploymentError('An app named torrserver-bunny already exists in this Bunny account. Inspect it in the Bunny dashboard rather than creating a duplicate paid app.')
-    elif isinstance(result, list):
-        for app in result:
-            if isinstance(app, dict) and app.get('name') == 'torrserver-bunny':
-                raise DeploymentError('An app named torrserver-bunny already exists in this Bunny account. Inspect it in the Bunny dashboard rather than creating a duplicate paid app.')
+    existing = named_apps(key)
+    if existing:
+        ids = ', '.join(str(a.get('id', '(unknown)')) for a in existing[:5])
+        raise DeploymentError('An existing torrserver-bunny app was found: ' + ids +
+                              '. Check Bunny Magic Containers; refusing to create a paid duplicate.')
+
+
+def app_matches_intent(key, app_id, region, image, registry):
+    """Never adopt a pre-existing unrelated application after a server error."""
+    data = request('GET', '/mc/apps/' + urllib.parse.quote(str(app_id), safe=''), key)
+    if not isinstance(data, dict) or data.get('name') != 'torrserver-bunny':
+        return False
+    fields = split_image(image)
+    containers = data.get('containerTemplates')
+    if not isinstance(containers, list) or len(containers) != 1:
+        return False
+    c = containers[0]
+    if not isinstance(c, dict) or c.get('name') != 'torrserver':
+        return False
+    expected = ('imageName', 'imageNamespace', 'imageTag')
+    if any(c.get(k) != fields[k] for k in expected) or str(c.get('imageRegistryId')) != str(registry):
+        return False
+    regions = data.get('regionSettings')
+    if not isinstance(regions, dict):
+        return False
+    return region in regions.get('requiredRegionIds', [])
+
+
+def create_app_safely(key, payload, region, image, registry):
+    """On ambiguous HTTP 500, reconcile via reads; NEVER retry POST blindly."""
+    try:
+        return extract_app_id(request('POST', '/mc/apps', key, payload))
+    except DeploymentError as exc:
+        if not str(exc).startswith('Bunny/remote HTTP 500'):
+            raise
+        print('Bunny returned HTTP 500 while creating the app. Checking whether it already exists...')
+        try:
+            existing = named_apps(key)
+        except DeploymentError:
+            raise DeploymentError('POST /mc/apps returned 500 and reconciliation GET failed. Check Bunny dashboard before another CREATE; nothing was retried.') from None
+        if len(existing) != 1 or not isinstance(existing[0].get('id'), str):
+            ids = ', '.join(str(a.get('id')) for a in existing[:5])
+            raise DeploymentError('Bunny POST returned HTTP 500. Found ' + str(len(existing)) +
+                                  ' matching apps (' + ids + '). Creation is unconfirmed. Inspect Bunny dashboard before retrying; no second POST was sent.') from None
+        app_id = existing[0]['id']
+        try:
+            matched = app_matches_intent(key, app_id, region, image, registry)
+        except DeploymentError:
+            matched = False
+        if not matched:
+            raise DeploymentError('HTTP 500 left an application ' + app_id +
+                                  ' but its configuration could not be verified. Inspect in Bunny; no retry.') from None
+        print('Recovered the exact app after ambiguous HTTP 500:', app_id)
+        return app_id
+
+
+def get_endpoint_items(key, app_id):
+    data = request('GET', '/mc/apps/' + urllib.parse.quote(app_id, safe='') + '/endpoints', key)
+    if not isinstance(data, dict) or not isinstance(data.get('items'), list):
+        raise DeploymentError('Could not verify existing endpoints; refusing possibly duplicated Anycast purchase')
+    if data.get('cursor'):
+        raise DeploymentError('Endpoint listing is paginated; refusing possibly duplicated Anycast purchase')
+    return data['items']
+
+
+def enable_peer_endpoint(c):
+    """Create the optional billed Anycast endpoint only after app ID is saved."""
+    app_id, key = c['app_id'], c['api_key']
+    items = get_endpoint_items(key, app_id)
+    if any(isinstance(ep, dict) and ep.get('displayName') == 'torrent-peers' for ep in items):
+        print('Anycast torrent-peers endpoint already exists. No duplicate created.')
+        c['public_peers'] = True
+        save_config(c)
+        return
+    data = request('GET', '/mc/apps/' + urllib.parse.quote(app_id, safe=''), key)
+    containers = data.get('containerTemplates') if isinstance(data, dict) else None
+    matches = [x for x in (containers or []) if isinstance(x, dict) and x.get('name') == 'torrserver' and isinstance(x.get('id'), str)]
+    if len(matches) != 1:
+        raise DeploymentError('Cannot resolve exact TorrServer container ID to add Anycast; existing app is safe')
+    container_id = matches[0]['id']
+    path = '/mc/apps/' + urllib.parse.quote(app_id, safe='') + '/containers/' + urllib.parse.quote(container_id, safe='') + '/endpoints'
+    payload = {'displayName': 'torrent-peers', 'anycast': {
+        'type': 'iPv4', 'portMappings': [{
+            'containerPort': 32000, 'exposedPort': 32000, 'protocols': ['tcp', 'udp']
+        }]
+    }}
+    try:
+        request('POST', path, key, payload)
+    except DeploymentError:
+        # A failure could still have provisioned a paid IP; do not POST again.
+        try:
+            fresh = get_endpoint_items(key, app_id)
+            if not any(isinstance(ep, dict) and ep.get('displayName') == 'torrent-peers' for ep in fresh):
+                raise DeploymentError('Anycast creation failed or is pending. Inspect Bunny Endpoints before using enable-peers again; no retry was sent.')
+        except DeploymentError:
+            raise DeploymentError('Anycast result ambiguous. Inspect Bunny Endpoints before retrying; no second POST was sent.') from None
+    c['public_peers'] = True
+    save_config(c)
+    print('Optional paid BitTorrent Anycast endpoint configured.')
+
+
+def doctor():
+    """Read-only and safe after an uncertain 500. Never prints Bunny credentials."""
+    key = load_config()['api_key'] if CONFIG.exists() else ask('Bunny account API key (read-only check)', hidden=True)
+    if not key:
+        raise DeploymentError('Bunny API key required')
+    items = named_apps(key)
+    print('Bunny Magic Containers: exact torrserver-bunny apps found:', len(items))
+    for app in items:
+        print('  App ID:', app.get('id', '(unknown)'), '| state:', app.get('status', '(unknown)'))
+    if not items:
+        print('No matching application returned by the complete API listing.')
+        print('If a POST recently returned 500, also check your Bunny dashboard before starting another setup.')
     else:
-        raise DeploymentError('Cannot verify existing Bunny apps; refusing to risk duplicate paid app creation')
+        print('Do not run CREATE again. Inspect the listed app(s) in Bunny dashboard.')
 
 
 def build_payload(region, user, password, monitor_token, image=IMAGE, public_peers=False, image_registry_id=None):
@@ -299,15 +427,22 @@ def setup(args):
         return
     # Refresh app listing immediately before POST to avoid accidental duplicates.
     check_no_duplicate_app(key)
-    payload = build_payload(region, user, password, monitor_token, args.image, peer, reg_id)
-    app = request('POST', '/mc/apps', key, payload)
-    app_id = extract_app_id(app)
+    # Keep billed Anycast out of app creation: if it fails, HTTPS TorrServer remains usable.
+    payload = build_payload(region, user, password, monitor_token, args.image, False, reg_id)
+    app_id = create_app_safely(key, payload, region, args.image, reg_id)
     config = dict(api_key=key, app_id=app_id, region=region, username=user, password=password,
-                  watchdog_token=monitor_token, image=args.image, url=find_https_url(app),
-                  public_peers=peer, created_at=datetime.now(timezone.utc).isoformat())
+                  watchdog_token=monitor_token, image=args.image, url=None,
+                  public_peers=False, requested_public_peers=peer, created_at=datetime.now(timezone.utc).isoformat())
     save_config(config)
     print(f'\nApp created: {app_id} · region {region}')
     print('Saved credentials locally (mode 600).')
+    if peer:
+        try:
+            enable_peer_endpoint(config)
+        except DeploymentError as exc:
+            print('Optional paid Anycast not confirmed. The basic HTTPS app was saved.', file=sys.stderr)
+            print(str(exc), file=sys.stderr)
+            print('Inspect Bunny Endpoints, then use: torrserver-bunny enable-peers', file=sys.stderr)
     if not args.no_deploy:
         try:
             request('POST', f'/mc/apps/{urllib.parse.quote(app_id, safe="")}/deploy', key)
@@ -448,6 +583,8 @@ def main(argv=None):
     sub.add_parser('start', help='Start your existing server')
     sub.add_parser('stop', help='Stop server compute (volume remains billed)')
     sub.add_parser('status', help='Show app status and connection details')
+    sub.add_parser('doctor', help='Read-only check for apps after a Bunny HTTP 500')
+    sub.add_parser('enable-peers', help='Add optional paid BitTorrent Anycast endpoint to existing app')
     u = sub.add_parser('set-url', help='Store exact HTTPS URL shown in Bunny dashboard')
     u.add_argument('url')
     check = sub.add_parser('idle-check', help='Check media activity and undeploy if idle')
@@ -461,6 +598,12 @@ def main(argv=None):
         if args.command == 'setup': setup(args)
         elif args.command in ('start', 'stop'): lifecycle(args.command)
         elif args.command == 'status': status()
+        elif args.command == 'doctor': doctor()
+        elif args.command == 'enable-peers':
+            c = load_config()
+            print('Enabling a separately billed Anycast IPv4 endpoint. Type ENABLE to confirm.')
+            if ask('Confirm') == 'ENABLE': enable_peer_endpoint(c)
+            else: print('Canceled')
         elif args.command == 'set-url': set_url(args.url)
         elif args.command == 'idle-check':
             if not 5 <= args.minutes <= 1440:
