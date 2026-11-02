@@ -10,6 +10,7 @@ import getpass
 import json
 import os
 import pathlib
+import re
 import secrets
 import subprocess
 import sys
@@ -143,7 +144,68 @@ def fetch_url(key, app_id):
     return None
 
 
-def build_payload(region, user, password, monitor_token, image=IMAGE, public_peers=False):
+
+def split_image(image):
+    """Validate a public GHCR image and expose the mandatory Bunny v3 fields."""
+    match = re.fullmatch(r'ghcr\.io/([a-z0-9][a-z0-9_.-]*)/([a-z0-9][a-z0-9_.-]*):([a-zA-Z0-9_][a-zA-Z0-9_.-]*)', image)
+    if match is None:
+        raise DeploymentError('Use a fully-qualified public GHCR image, such as ghcr.io/owner/image:tag')
+    namespace, name, tag = match.groups()
+    return dict(image=image, imageNamespace=namespace, imageName=name, imageTag=tag,
+                imagePullPolicy='always')
+
+
+def registry_id(registries, host='ghcr.io'):
+    """Never guess a registry ID: use only an exact hostname returned by Bunny."""
+    if not isinstance(registries, dict) or not isinstance(registries.get('items'), list):
+        raise DeploymentError('Unexpected Bunny registry response; refusing to create a paid app')
+    matches = []
+    for entry in registries['items']:
+        if not isinstance(entry, dict):
+            continue
+        registered_host = str(entry.get('hostName') or '').strip().lower().rstrip('/')
+        if registered_host.startswith('https://'):
+            registered_host = registered_host[8:]
+        value = entry.get('id')
+        if registered_host == host and isinstance(value, (str, int)) and not isinstance(value, bool) and str(value):
+            matches.append(str(value))
+    if len(matches) > 1:
+        raise DeploymentError('Several GHCR registries found. Remove duplicate registry entries in Bunny before setup.')
+    return matches[0] if matches else None
+
+
+def ensure_registry(key, existing):
+    found = registry_id(existing)
+    if found:
+        print('Using existing Bunny GHCR registry:', found)
+        return found
+    print('Registering public ghcr.io as an OCI registry (no GitHub token required).')
+    result = request('POST', '/mc/registries', key, {
+        'displayName': 'TorrServer Bunny GHCR', 'type': 'oci', 'hostName': 'ghcr.io',
+    })
+    if not isinstance(result, dict) or result.get('status') != 'saved' or not isinstance(result.get('id'), (str, int)) or isinstance(result.get('id'), bool) or not str(result.get('id')):
+        raise DeploymentError('Bunny did not confirm GHCR registry registration. Check Magic Containers → Registries in Bunny; app NOT created.')
+    return str(result['id'])
+
+
+def check_no_duplicate_app(key):
+    result = request('GET', '/mc/apps', key)
+    if isinstance(result, dict) and isinstance(result.get('items'), list):
+        for app in result['items']:
+            if isinstance(app, dict) and app.get('name') == 'torrserver-bunny':
+                raise DeploymentError('An app named torrserver-bunny already exists in this Bunny account. Inspect it in the Bunny dashboard rather than creating a duplicate paid app.')
+    elif isinstance(result, list):
+        for app in result:
+            if isinstance(app, dict) and app.get('name') == 'torrserver-bunny':
+                raise DeploymentError('An app named torrserver-bunny already exists in this Bunny account. Inspect it in the Bunny dashboard rather than creating a duplicate paid app.')
+    else:
+        raise DeploymentError('Cannot verify existing Bunny apps; refusing to risk duplicate paid app creation')
+
+
+def build_payload(region, user, password, monitor_token, image=IMAGE, public_peers=False, image_registry_id=None):
+    image_fields = split_image(image)
+    if not image_registry_id:
+        raise DeploymentError('Bunny imageRegistryId must be resolved before building a paid-app request')
     # Secrets are passed to the container as env vars, never to GitHub source.
     env = [
         {'name': 'TS_HTTPAUTH', 'value': '1'},
@@ -169,7 +231,8 @@ def build_payload(region, user, password, monitor_token, image=IMAGE, public_pee
         'terminationGracePeriodSeconds': 30,
         'containerTemplates': [{
             'name': 'torrserver',
-            'image': image,
+            **image_fields,
+            'imageRegistryId': str(image_registry_id),
             'environmentVariables': env,
             'endpoints': endpoints,
             'volumeMounts': [{'name': 'config', 'mountPath': '/opt/ts/config'}],
@@ -186,7 +249,11 @@ def setup(args):
     key = ask('Bunny account API key', hidden=True)
     if not key:
         raise DeploymentError('API key is required')
-    print('Checking Bunny API and available regions...')
+    image_fields = split_image(args.image)
+    print('Checking Bunny API, existing apps, GHCR registry and available regions...')
+    check_no_duplicate_app(key)
+    existing_registries = request('GET', '/mc/registries', key)
+    registry_id(existing_registries)  # validate response BEFORE asking for paid-app consent
     regions = normalize_regions(request('GET', '/mc/regions', key))
     for i, (code, title) in enumerate(regions, 1):
         print(f'  {i:>2}. {title} ({code})')
@@ -205,11 +272,15 @@ def setup(args):
     monitor_token = secrets.token_urlsafe(32)
     peer = ask('Expose BitTorrent TCP/UDP peer port via paid Anycast IPv4? (y/N)', 'N').lower() == 'y'
     print('\nCreating one-region application (persistent config volume: 1 GB billed while stopped).')
-    print('This will provision paid Bunny resources. Type CREATE to continue.')
+    print('Image:', image_fields['image'], '(public GHCR)')
+    print('This may register GHCR and will create paid Bunny resources. Type CREATE to continue.')
     if ask('Confirm') != 'CREATE':
         print('Canceled. No application created.')
         return
-    payload = build_payload(region, user, password, monitor_token, args.image, peer)
+    reg_id = ensure_registry(key, existing_registries)
+    # Refresh app listing immediately before POST to avoid accidental duplicates.
+    check_no_duplicate_app(key)
+    payload = build_payload(region, user, password, monitor_token, args.image, peer, reg_id)
     app = request('POST', '/mc/apps', key, payload)
     app_id = extract_app_id(app)
     config = dict(api_key=key, app_id=app_id, region=region, username=user, password=password,
