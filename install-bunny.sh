@@ -45,4 +45,6 @@ chmod 755 "$BIN_DIR/torrserver-bunny"
 
 echo "Installed ~/.local/bin/torrserver-bunny (source commit $REV)"
 echo "If necessary, add $BIN_DIR to your PATH."
-"$BIN_DIR/torrserver-bunny" setup
+# Use "doctor" for read-only post-500 diagnosis; default remains interactive setup.
+if [ "$#" -eq 0 ]; then set -- setup; fi
+"$BIN_DIR/torrserver-bunny" "$@"
