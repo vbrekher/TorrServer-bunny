@@ -77,11 +77,13 @@ class CLIConfigTests(unittest.TestCase):
         requests = []
         def fake_request(method, path, key=None, payload=None, **kwargs):
             requests.append((method, path, payload))
-            if method == 'GET' and path == '/mc/apps': return {'items': []}
+            if method == 'GET' and path == '/mc/apps?limit=100': return {'items': []}
             if method == 'GET' and path == '/mc/registries': return {'items': [{'id': 7, 'hostName': 'ghcr.io'}, {'id': 8, 'hostName': 'ghcr.io'}]}
             if method == 'POST' and path == '/mc/registries/digest': return {'digest': 'sha256:'+'c'*64}
             if method == 'GET' and path == '/mc/regions': return {'items': [{'id': 'DE', 'name': 'Germany'}]}
             if method == 'POST' and path == '/mc/apps': return {'id': 'app-123'}
+            if method == 'GET' and path == '/mc/apps/app-123': return {'containerTemplates': [{'name': 'torrserver', 'id': 'ct-123'}]}
+            if method == 'POST' and path.endswith('/containers/ct-123/endpoints'): return {'id': 'anycast-123'}
             if method == 'POST' and path.endswith('/deploy'): return {}
             if method == 'GET' and path.endswith('/endpoints'): return {'items': [{'hostname': 'mc-example.bunny.run'}]}
             raise AssertionError((method, path))
@@ -93,7 +95,89 @@ class CLIConfigTests(unittest.TestCase):
                 app_posts = [payload for method, path, payload in requests if method == 'POST' and path == '/mc/apps']
                 self.assertEqual(len(app_posts), 1)
                 self.assertEqual(app_posts[0]['containerTemplates'][0]['imageRegistryId'], 'github')
-                self.assertEqual(len(app_posts[0]['containerTemplates'][0]['endpoints']), 2)
+                self.assertEqual(len(app_posts[0]['containerTemplates'][0]['endpoints']), 1)
+                self.assertEqual(len([p for m,p,_ in requests if m=='POST' and p.endswith('/containers/ct-123/endpoints')]), 1)
+                self.assertTrue(cli.load_config()['public_peers'])
+
+
+    def test_pagination_detects_existing_app_on_later_page(self):
+        def fake(method, path, key):
+            if path == '/mc/apps?limit=100':
+                return {'items': [{'name':'unrelated'}], 'cursor': 'page-2'}
+            if path == '/mc/apps?limit=100&nextCursor=page-2':
+                return {'items': [{'name': 'torrserver-bunny', 'id': 'existing'}]}
+            raise AssertionError(path)
+        with patch.object(cli, 'request', side_effect=fake):
+            with self.assertRaisesRegex(cli.DeploymentError, 'existing'):
+                cli.check_no_duplicate_app('secret')
+
+    def test_http500_zero_apps_never_retries_creation(self):
+        calls = []
+        def fake(method, path, key, payload=None):
+            calls.append((method, path))
+            if method == 'POST':
+                raise cli.DeploymentError('Bunny/remote HTTP 500: Internal Server Error')
+            if method == 'GET' and path == '/mc/apps?limit=100':
+                return {'items': []}
+            raise AssertionError(path)
+        with patch.object(cli, 'request', side_effect=fake):
+            with self.assertRaisesRegex(cli.DeploymentError, 'no second POST'):
+                cli.create_app_safely('secret', {'name': 'torrserver-bunny'}, 'DE', cli.IMAGE, 'github')
+        self.assertEqual([x for x in calls if x[0] == 'POST'], [('POST', '/mc/apps')])
+
+    def test_http500_recovers_exact_new_app(self):
+        def fake(method, path, key, payload=None):
+            if method == 'POST' and path == '/mc/apps':
+                raise cli.DeploymentError('Bunny/remote HTTP 500: Internal Server Error')
+            if method == 'GET' and path == '/mc/apps?limit=100':
+                return {'items': [{'name': 'torrserver-bunny', 'id': 'app-new'}]}
+            if method == 'GET' and path == '/mc/apps/app-new':
+                return {'name': 'torrserver-bunny', 'regionSettings': {'requiredRegionIds': ['DE']},
+                        'containerTemplates': [{'name': 'torrserver', 'imageName': 'torrserver-bunny',
+                                                'imageNamespace': 'vbrekher', 'imageTag': 'main',
+                                                'imageRegistryId': 'github'}]}
+            raise AssertionError(path)
+        with patch.object(cli, 'request', side_effect=fake):
+            self.assertEqual(cli.create_app_safely('secret', {'name': 'torrserver-bunny'}, 'DE', cli.IMAGE, 'github'), 'app-new')
+
+    def test_http500_does_not_adopt_mismatched_app(self):
+        def fake(method, path, key, payload=None):
+            if method == 'POST':
+                raise cli.DeploymentError('Bunny/remote HTTP 500: Internal Server Error')
+            if path == '/mc/apps?limit=100':
+                return {'items': [{'name': 'torrserver-bunny', 'id': 'app-wrong'}]}
+            if path == '/mc/apps/app-wrong':
+                return {'name': 'torrserver-bunny', 'regionSettings': {'requiredRegionIds': ['NL']},
+                        'containerTemplates': [{'name': 'other'}]}
+            raise AssertionError(path)
+        with patch.object(cli, 'request', side_effect=fake):
+            with self.assertRaisesRegex(cli.DeploymentError, 'could not be verified'):
+                cli.create_app_safely('secret', {'name': 'torrserver-bunny'}, 'DE', cli.IMAGE, 'github')
+
+    def test_enable_peers_is_idempotent(self):
+        calls = []
+        def fake(method, path, key, payload=None):
+            calls.append((method, path))
+            if path.endswith('/endpoints') and method == 'GET':
+                return {'items': [{'displayName': 'torrent-peers'}]}
+            raise AssertionError(path)
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(cli, 'CONFIG', pathlib.Path(tmp) / 'config.json'), patch.object(cli, 'request', side_effect=fake):
+                c = {'api_key': 'secret', 'app_id': 'app-123', 'public_peers': False}
+                cli.enable_peer_endpoint(c)
+                self.assertTrue(cli.load_config()['public_peers'])
+                self.assertFalse(any(x[0]=='POST' for x in calls))
+
+    def test_doctor_read_only(self):
+        calls=[]
+        def fake(method, path, key):
+            calls.append(method)
+            return {'items': []}
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(cli, 'CONFIG', pathlib.Path(tmp) / 'missing.json'), \
+                 patch.object(cli, 'ask', return_value='secret'), patch.object(cli, 'request', side_effect=fake):
+                cli.doctor()
+        self.assertEqual(calls, ['GET'])
 
     def test_safe_url_only(self):
         self.assertEqual(cli.find_https_url({'endpoints':[{'cdn': {'hostname': 'mc-example.bunny.run'}}]}), 'https://mc-example.bunny.run')
