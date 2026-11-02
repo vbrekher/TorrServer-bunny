@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 API = 'https://api.bunny.net'
 IMAGE = 'ghcr.io/vbrekher/torrserver-bunny:main'
 CONFIG = pathlib.Path.home() / '.config' / 'torrserver-bunny' / 'config.json'
-CLI_BUILD = '2026-11-02-create500-reconcile-staged-anycast'
+CLI_BUILD = '2026-11-02-official-cli-payload-parity'
 USER_AGENT = 'TorrServer-bunny/0.2 (+https://github.com/vbrekher/TorrServer-bunny)'
 
 
@@ -362,7 +362,7 @@ def build_payload(region, user, password, monitor_token, image=IMAGE, public_pee
     ]
     endpoints = [{
         'displayName': 'torrserver-https',
-        'cdn': {'isSslEnabled': True, 'portMappings': [{'containerPort': 8080, 'exposedPort': 80, 'protocols': ['tcp']}]},
+        'cdn': {'isSslEnabled': True, 'portMappings': [{'containerPort': 8080, 'exposedPort': 80}]},
     }]
     if public_peers:
         endpoints.append({
@@ -373,8 +373,7 @@ def build_payload(region, user, password, monitor_token, image=IMAGE, public_pee
         'name': 'torrserver-bunny',
         'runtimeType': 'shared',
         'autoScaling': {'min': 1, 'max': 1},
-        'regionSettings': {'allowedRegionIds': [region], 'requiredRegionIds': [region], 'maxAllowedRegions': 1},
-        'terminationGracePeriodSeconds': 30,
+        'regionSettings': {'allowedRegionIds': [region], 'requiredRegionIds': [region]},
         'containerTemplates': [{
             'name': 'torrserver',
             **image_fields,
@@ -420,6 +419,7 @@ def setup(args):
     peer = ask('Expose BitTorrent TCP/UDP peer port via paid Anycast IPv4? (y/N)', 'N').lower() == 'y'
     print('\nCreating one-region application (persistent config volume: 1 GB billed while stopped).')
     print('Image:', image_fields['image'], '(public GHCR)')
+    print('Bunny API create format: official-cli-compatible (no extra CDN protocols / region max / grace period)')
     print('Registry already verified:', reg_id)
     print('This will create paid Bunny resources. Type CREATE to continue.')
     if ask('Confirm') != 'CREATE':
