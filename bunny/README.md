@@ -1,6 +1,8 @@
-# TorrServer Bunny — deployment and controls
+# TorrServer Bunny — technical deployment and controls
 
-**Status: source implementation; live Bunny API/TV playback requires the owner's API key and tests.** The stock TorrServer source remains upstream-compatible. Read [YouROK/TorrServer](https://github.com/YouROK/TorrServer) for original functionality and GPL-3.0 license.
+User-friendly guides: [Русский](../docs/README.ru.md) · [English](../docs/README.en.md) · [Nederlands](../docs/README.nl.md)
+
+**Status (2 Nov 2026): real Bunny app creation and an active HTTPS CDN endpoint have been confirmed from the owner's terminal logs. Real Samsung Tizen/Lampa playback, torrent peer connectivity and scheduled idle-stop acceptance remain unverified.** The stock TorrServer source remains upstream-compatible. Read [YouROK/TorrServer](https://github.com/YouROK/TorrServer) for original functionality and GPL-3.0 license.
 
 ## User installation (macOS/Linux)
 
@@ -54,7 +56,7 @@ Requires `gh auth login` and [GitHub CLI](https://cli.github.com/), with permiss
 
 ## Cost notes
 
-Bunny published rates (2 Nov 2026): CPU $0.02/core-hour, RAM $0.005/GB-hour, EU/NA egress $0.01/GB, 1-GB volume about $0.10/month even when undeployed, optional Anycast IPv4 $2/month prorated. 50 GB HTTP egress = $0.50; three hours at full 1 vCPU + 1 GB = $0.075; **$0.575 + allocated storage + torrent peer upload + optional Anycast**. CPU is actual consumed time, so $0.075 represents a full-usage example, not a promised final bill. Shared torrent peer upload can materially increase outgoing traffic. Consult [Bunny pricing](https://bunny.net/magic-containers/) and your account billing. The runtime should only be used for content you have rights to access or share.
+Bunny published rates (checked 2 Nov 2026): CPU **$0.02/core-hour** (actual CPU usage), RAM **$0.005/GB-hour** (billed in 64 MB increments), Europe/North America outbound bandwidth **$0.01/GB**, a 1 GB persistent volume **$0.10/month even when undeployed**, optional Anycast IPv4 **$2/month prorated by minute while allocated**. For one 50 GB film streamed over three hours to one EU/NA viewer, assume one fully consumed CPU core and 1 GB of billed RAM: $0.50 bandwidth + $0.06 CPU + $0.015 RAM = **$0.575 (about $0.58) per example movie session, before recurring resources**. If this is the only film watched over 30 days with allocated storage all month, illustrative monthly totals are **~$0.68 without Anycast** or **~$2.68 with Anycast** (full-month IP). These are examples, not bills. Additional torrent peer upload/seeding, repeat traffic, applicable CDN charges, taxes, other products and account-level minimums are excluded. Actual billing and rates may differ; see [Bunny Magic Containers pricing](https://bunny.net/magic-containers/) and [Bunny CDN pricing](https://bunny.net/pricing/cdn/). Use only torrents you may legally download and share.
 
 ## Architecture & validation
 
