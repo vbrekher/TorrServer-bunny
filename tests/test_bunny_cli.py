@@ -209,10 +209,78 @@ class CLIConfigTests(unittest.TestCase):
         self.assertEqual(calls, ['GET', 'GET', 'GET'])  # apps + registries + limits, all read-only
 
     def test_safe_url_only(self):
-        self.assertEqual(cli.find_https_url({'endpoints':[{'cdn': {'hostname': 'mc-example.bunny.run'}}]}), 'https://mc-example.bunny.run')
+        self.assertEqual(cli.find_https_url({'endpoints':[{'cdn': {'hostname': 'mc-example.bunny.run', 'isSslEnabled': True}}]}), 'https://mc-example.bunny.run')
         self.assertIsNone(cli.find_https_url({'id': 'id-1234', 'endpoints': []}))
-        self.assertEqual(cli.find_https_url({'items': [{'publicHost': 'mc-live.bunny.run'}]}), 'https://mc-live.bunny.run')
+        self.assertEqual(cli.find_https_url({'items': [{'type':'cdn', 'isSslEnabled': True, 'publicHost': 'mc-live.bunny.run'}]}), 'https://mc-live.bunny.run')
         self.assertEqual(cli.find_https_url({'displayEndpoint': {'address': 'mc-secondary.bunny.run', 'type': 'CDN'}}), 'https://mc-secondary.bunny.run')
+
+
+    def test_never_select_paid_anycast_ip_as_lampa_url(self):
+        data = {'items': [
+            {'type': 'anycast', 'isSslEnabled': False, 'publicHost': '109.224.231.152:32000',
+             'displayName': 'torrent-peers'},
+            {'type': 'cdn', 'isSslEnabled': True, 'publicHost': 'mc-real.bunny.run',
+             'displayName': 'torrserver-https'}
+        ]}
+        self.assertEqual(cli.find_https_url(data), 'https://mc-real.bunny.run')
+        self.assertIsNone(cli.find_https_url({'items': [data['items'][0]]}))
+        self.assertIsNone(cli.canonical_https_endpoint('https://109.224.231.152:32000'))
+        self.assertIsNone(cli.canonical_https_endpoint('https://example.com:32000'))
+        self.assertIsNone(cli.canonical_https_endpoint('http://mc-real.bunny.run'))
+        self.assertEqual(cli.canonical_https_endpoint('mc-real.bunny.run'), 'https://mc-real.bunny.run')
+
+    def test_app_display_endpoint_anycast_ignored(self):
+        app = {'displayEndpoint': {'address': '109.224.231.152:32000', 'type': 'anycast'},
+               'containerTemplates': [{'endpoints': [
+                   {'type': 'cdn', 'publicHost': 'mc-cdn.bunny.run', 'isSslEnabled': True}
+               ]}]}
+        self.assertEqual(cli.find_https_url(app), 'https://mc-cdn.bunny.run')
+        self.assertIsNone(cli.find_https_url({'displayEndpoint': app['displayEndpoint']}))
+
+    def test_status_repairs_saved_anycast_url_and_masks_password(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            c = {'api_key': 'secret', 'app_id': 'HznUbyXuN3o1dpA', 'region': 'AMS',
+                 'username': 'letin', 'password': 'DO_NOT_PRINT',
+                 'url': 'https://109.224.231.152:32000'}
+            def fake(method, path, key, payload=None):
+                if path == '/mc/apps/HznUbyXuN3o1dpA':
+                    return {'status': 'running', 'containerTemplates': [
+                        {'endpoints': [{'type': 'cdn', 'isSslEnabled': True,
+                                        'publicHost': 'mc-real.bunny.run'}]}]}
+                if path == '/mc/apps/HznUbyXuN3o1dpA/endpoints':
+                    return {'items': [
+                        {'type': 'anycast', 'publicHost': '109.224.231.152:32000',
+                         'isSslEnabled': False},
+                        {'type': 'cdn', 'publicHost': 'mc-real.bunny.run',
+                         'isSslEnabled': True}]}
+                raise AssertionError(path)
+            import io
+            from contextlib import redirect_stdout
+            with patch.object(cli, 'CONFIG', pathlib.Path(tmp) / 'config.json'):
+                cli.save_config(c)
+                with patch.object(cli, 'request', side_effect=fake):
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        cli.status()
+                    self.assertEqual(cli.load_config()['url'], 'https://mc-real.bunny.run')
+                    self.assertNotIn('DO_NOT_PRINT', output.getvalue())
+                    self.assertIn('https://mc-real.bunny.run', output.getvalue())
+                    output2 = io.StringIO()
+                    with redirect_stdout(output2):
+                        cli.status(show_credentials=True)
+                    self.assertIn('DO_NOT_PRINT', output2.getvalue())
+
+    def test_status_does_not_reuse_wrong_ip_if_cdn_not_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            c = {'api_key': 'secret', 'app_id': 'id', 'region': 'AMS', 'username': 'letin',
+                 'password': 'secretpw', 'url': 'https://109.224.231.152:32000'}
+            import io
+            from contextlib import redirect_stdout
+            with patch.object(cli, 'CONFIG', pathlib.Path(tmp) / 'config.json'):
+                cli.save_config(c)
+                with patch.object(cli, 'request', return_value={'status': 'deploying'}):
+                    with redirect_stdout(io.StringIO()): cli.status()
+                self.assertIsNone(cli.load_config()['url'])
 
     def test_idle_active_prevents_shutdown(self):
         now = time.time()
