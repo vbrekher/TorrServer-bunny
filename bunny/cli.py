@@ -23,7 +23,8 @@ from datetime import datetime, timezone
 API = 'https://api.bunny.net'
 IMAGE = 'ghcr.io/vbrekher/torrserver-bunny:main'
 CONFIG = pathlib.Path.home() / '.config' / 'torrserver-bunny' / 'config.json'
-USER_AGENT = 'TorrServer-bunny/0.1 (+https://github.com/vbrekher/TorrServer-bunny)'
+CLI_BUILD = '2026-11-02-registry-digest-verified'
+USER_AGENT = 'TorrServer-bunny/0.2 (+https://github.com/vbrekher/TorrServer-bunny)'
 
 
 class DeploymentError(Exception):
@@ -262,6 +263,7 @@ def setup(args):
     if CONFIG.exists():
         raise DeploymentError('Already configured; refusing to create a second paid application. Use start/status/stop or back up the config intentionally.')
     print('\nTorrServer Bunny · First-time setup')
+    print('CLI build:', CLI_BUILD)
     print('Bunny API key stays locally in a chmod 600 file; never paste it into a public issue or chat.')
     key = ask('Bunny account API key', hidden=True)
     if not key:
