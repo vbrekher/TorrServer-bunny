@@ -121,6 +121,15 @@ Officiële prijzen (gecontroleerd op **2 november 2026**): [Magic Containers](ht
 
 Je hebt de aangemelde [GitHub CLI](https://cli.github.com/) (`gh`) nodig op je Mac/Linux-computer en je **eigen** repository `vbrekher/TorrServer-bunny`. De lokale CLI bewaart alle vereiste waarden in een beveiligd configuratiebestand.
 
+**Werk eerst de lokale CLI bij, zonder een nieuwe Bunny-app aan te maken:**
+
+```bash
+curl -fsSL --retry 3 \\
+  https://raw.githubusercontent.com/vbrekher/TorrServer-bunny/master/install-bunny.sh \\
+  -o /tmp/torrserver-bunny-update.sh \\
+  && sh /tmp/torrserver-bunny-update.sh status
+```
+
 **Stap 1 — Controleren of de gateway videostreams meet.** Start de bestaande server, speel kort een toegestane teststream af in Lampa en stop daarna **alleen het afspelen**, niet de Bunny-container:
 
 ```bash
