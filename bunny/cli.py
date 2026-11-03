@@ -672,12 +672,28 @@ def idle_check(args):
     print('Checking live activity...')
     first = get_activity(url, token)
     now = time.time()
+    # If real playback has never been observed since container startup, we
+    # cannot tell a genuinely idle server from traffic bypassing the gateway.
+    # In that case do NOT stop a potentially active viewer.
+    can_stop(first, now, args.minutes * 60)  # validate required fields
+    tracked = first.get('media_bytes')
+    if not isinstance(tracked, int) or isinstance(tracked, bool) or tracked <= 0:
+        print('SAFE_NO_STOP: no tracked video bytes since container start. '
+              'Play a test stream and verify activity; never stop unverified playback.')
+        return
+    age = max(0, int((now - first['last_media_unix']) // 60))
+    print(f'Activity: active_streams={first["active_streams"]}, '
+          f'media_bytes={tracked}, idle_minutes={age}, threshold={args.minutes}')
     if not can_stop(first, now, args.minutes * 60):
         print('Active stream or idle threshold not reached. Leaving server running.')
         return
     # Minimize race with player beginning a stream while first response is processed.
     time.sleep(5 if not args.no_pause else 0)
     second = get_activity(url, token)
+    second_bytes = second.get('media_bytes') if isinstance(second, dict) else None
+    if not isinstance(second_bytes, int) or isinstance(second_bytes, bool) or second_bytes <= 0:
+        print('SAFE_NO_STOP: activity counter unavailable on second check.')
+        return
     if not can_stop(second, time.time(), args.minutes * 60):
         print('Activity changed. Leaving server running.')
         return
