@@ -53,7 +53,7 @@ class DocumentationTests(unittest.TestCase):
         for phrase in (
             "torrserver-bunny start", "torrserver-bunny stop",
             "torrserver-bunny status", "status --show-credentials",
-            "CREATE", "Anycast", ":32000", "not yet verified",
+            "CREATE", "Anycast", ":32000", "Scheduled idle shutdown is still **unverified**", "owner-confirmed",
             "50 GB", "$0.58", "$2.68", "YouROK",
             "bunny-cli-tests.yml",
         ):
