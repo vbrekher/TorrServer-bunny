@@ -4,6 +4,7 @@ on:
     branches: [master]
     paths:
       - bunny/cli.py
+      - install-bunny.sh
       - tests/test_bunny_cli.py
       - tests/test_bunny_docs.py
       - README.md
