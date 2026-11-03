@@ -6,7 +6,7 @@ Turn your [bunny.net Magic Containers](https://bunny.net/magic-containers/) acco
 
 **In short:** install once on a Mac or Linux computer → enter the HTTPS server address in Lampa → run **start** when you want to watch → run **stop** afterwards. Your server and settings remain saved.
 
-> **Current verification:** a real Bunny app was successfully created, and Bunny reported it **active** with an HTTPS CDN endpoint on 2 November 2026. Playback on a physical Samsung Tizen TV, peer connections, and the automatic idle-stop workflow have **not** been verified yet. This guide does not promise that all torrents, Lampa builds, or TV video formats work.
+> **Current verification:** a real Bunny app was created and Bunny returned **active** with an HTTPS CDN endpoint on 2 November 2026. **On 4 November 2026, the owner confirmed streaming playback in Lampa works.** Independent Samsung Tizen model/codec compatibility auditing is not complete. A successful real-world automatic idle stop has **not yet been verified**. This guide does not promise that all torrents, Lampa builds, or TV video formats work.
 
 ## 1. What you need
 
@@ -110,17 +110,42 @@ You do not reinstall or create another Bunny app for each movie.
 
 **Official rates (checked 2 November 2026):** [Magic Containers — compute, storage, Anycast, bandwidth](https://bunny.net/magic-containers/) · [Bunny CDN pricing](https://bunny.net/pricing/cdn/).
 
-## 6. Optional: automatic stop after an hour without streaming
+## 6. Enable and verify automatic shutdown after 60 idle minutes
 
-By default you stop manually. The project also includes a **GitHub Actions watchdog** that checks streaming activity roughly every 10 minutes and requests a stop after at least **60 minutes without media streaming**.
+**Previous issue found in live CI:** scheduled GitHub Actions runs on 3 November 2026 failed because all four required secrets were not installed: `BUNNY_API_KEY`, `BUNNY_APP_ID`, `BUNNY_PUBLIC_URL` and `BUNNY_WATCHDOG_TOKEN`. No automatic stop was performed. **Never paste secrets into GitHub source files or chat.**
 
-This is **optional**. You need GitHub CLI (`gh`) authenticated on your computer, a GitHub repository **you control** containing this project's `.github/workflows/idle-watchdog.yml`, and permission to set GitHub Actions secrets.
+You need an authenticated [GitHub CLI](https://cli.github.com/) (`gh`) on your computer and your **own** repository, `vbrekher/TorrServer-bunny`. The local CLI stores the required values in a protected configuration file.
+
+**Step 1 — Verify actual media tracking.** Start the existing app, play a permitted test video briefly through Lampa, then stop playback **without stopping the Bunny container**:
 
 ```bash
-~/.local/bin/torrserver-bunny enable-github-watchdog --repo YOUR-ACCOUNT/YOUR-REPOSITORY
+~/.local/bin/torrserver-bunny activity
 ```
 
-Review the workflow and enter `ENABLE` if you trust that repository. This stores the Bunny API key and other runtime credentials as **GitHub Actions secrets in that repository**. Do not install account-level secrets into someone else's repository. A scheduled GitHub Action is **best effort** and can be delayed or disabled: it is **not** a guaranteed billing cutoff. It does **not** start the server automatically when Lampa opens.
+The result must show `Watchdog endpoint: reachable` and **`Tracked media bytes since container startup` greater than zero**. If the endpoint returns an error or records zero bytes, **do not enable automatic shutdown yet**: the streaming route or CDN may bypass the activity gateway.
+
+**Step 2 — Install your GitHub secrets and perform a safe manual workflow check:**
+
+```bash
+gh auth status
+~/.local/bin/torrserver-bunny enable-github-watchdog --repo vbrekher/TorrServer-bunny
+gh workflow enable idle-watchdog.yml -R vbrekher/TorrServer-bunny
+gh workflow run idle-watchdog.yml -R vbrekher/TorrServer-bunny
+gh run list -R vbrekher/TorrServer-bunny --workflow idle-watchdog.yml -L 5
+```
+
+The CLI will ask you to type `ENABLE`. It transfers the four secret values **from your local protected configuration to GitHub Actions Secrets** of **your repository**. The manual workflow run **does not force an early stop**; the 60-minute idle condition still applies. Do not use a third-party repository.
+
+**Step 3 — Verify the automatic stop.** Stop watching in Lampa but **leave the Bunny app running**. Do not play anything for at least **60 minutes**. The scheduled workflow runs approximately every **10 minutes**; after observing at least 60 minutes without media data, it requests `undeploy`.
+
+```bash
+gh run list -R vbrekher/TorrServer-bunny --workflow idle-watchdog.yml -L 10
+~/.local/bin/torrserver-bunny status
+```
+
+Inspect the latest GitHub Actions run for the log line `IDLE_STOP_REQUESTED`. A successful workflow alone does **not** prove shutdown: it may have correctly skipped stopping while media was active. Confirm the app is no longer `active` in Bunny.
+
+**Limitations:** not an exact 60:00 timer. Typically the next scheduled check after 60 minutes can stop the app, but GitHub Actions can delay or skip jobs. Counters reset after container restart. For safety the controller skips automatic undeploy until it observes media bytes since the current container startup. Manual `torrserver-bunny stop` works immediately; allocated storage and Anycast IPv4 may continue to cost money.
 
 ## 7. Problems and quick fixes
 
