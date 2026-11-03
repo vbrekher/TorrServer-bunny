@@ -48,6 +48,17 @@ class DocumentationTests(unittest.TestCase):
         for lang in ("ru", "en", "nl"):
             self.assertIn(f"docs/README.{lang}.md", landing)
 
+    def test_installer_and_cli_build_version_are_in_sync(self):
+        cli = (ROOT / "bunny/cli.py").read_text(encoding="utf-8")
+        installer = (ROOT / "install-bunny.sh").read_text(encoding="utf-8")
+        match = re.search(r"^CLI_BUILD = '([^']+)'$", cli, re.MULTILINE)
+        self.assertIsNotNone(match)
+        self.assertIn(match.group(1), installer)
+        self.assertIn("def activity_status(", cli)
+        self.assertIn("def activity_snapshot(", cli)
+        self.assertIn("def activity_status(", installer)
+        self.assertIn("def activity_snapshot(", installer)
+
     def test_landing_page_retains_first_time_safety_and_truth(self):
         text = (ROOT / "README.md").read_text(encoding="utf-8")
         for phrase in (
