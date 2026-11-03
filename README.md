@@ -13,7 +13,7 @@ Deploy on [bunny.net Magic Containers](https://bunny.net/magic-containers/), con
 <a href="LICENSE"><img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-786BF6?style=flat" /></a>
 <img alt="Platforms: macOS and Linux" src="https://img.shields.io/badge/CLI-macOS%20%7C%20Linux-263556?style=flat" />
 <img alt="Bunny Magic Containers" src="https://img.shields.io/badge/hosting-Bunny%20Magic%20Containers-FF7096?style=flat" />
-<img alt="Samsung Tizen playback not yet verified" src="https://img.shields.io/badge/TV%20playback-testing-EFAE61?style=flat" />
+<img alt="Lampa playback confirmed by the project owner" src="https://img.shields.io/badge/Lampa%20playback-owner%20confirmed-2DBE99?style=flat" />
 
 <br /><br />
 
@@ -152,17 +152,45 @@ An **illustrative Blu-ray-size movie** streamed over **3 hours** to one viewer i
 
 <sub>**This is not a guaranteed bill.** The session estimate excludes BitTorrent peer upload / seeding (potentially significant), extra or repeated traffic, additional applicable CDN charges, region-specific prices, taxes, other Bunny products and account minimums. CPU and RAM usage are assumptions, not measurements. `stop` stops compute, but allocated storage and Anycast can remain billable. Bunny rates and billing may change. Rates referenced as of **2 November 2026**: [Magic Containers](https://bunny.net/magic-containers/) · [CDN pricing](https://bunny.net/pricing/cdn/).</sub>
 
-## 🕒 Hands-free shutdown (optional)
+## 🕒 Automatic shutdown after 60 idle minutes
 
-The HTTP gateway records movie-stream activity without giving the running container your Bunny management API key. You can run a GitHub Actions watchdog in **a repository you own and trust**:
+**Current real-world state:** the watchdog workflow was triggered by GitHub, but the runs on 3 November 2026 failed because the required four GitHub Actions secrets were not yet configured. **It has not stopped the Bunny app.** The video-streaming path is now confirmed by the owner; the idle auto-stop remains unverified.
+
+To activate it, you need an authenticated [GitHub CLI](https://cli.github.com/) (`gh`) on your Mac/Linux computer and the repository **you own**: `vbrekher/TorrServer-bunny`. The local installer already keeps your Bunny API key, app ID, HTTPS URL and watchdog token in a restricted configuration file. **Never paste or commit these credentials into GitHub.**
+
+**1. Start the existing app and briefly play a test stream in Lampa.** After playback, stop the video but **leave the Bunny container running**. Then verify the gateway counter (this is read-only):
 
 ```bash
-~/.local/bin/torrserver-bunny enable-github-watchdog --repo YOUR-ACCOUNT/YOUR-REPOSITORY
+~/.local/bin/torrserver-bunny activity
 ```
 
-The workflow checks approximately every ten minutes and requests `undeploy` only after at least **60 minutes without media activity**. It requires GitHub CLI and the [included watchdog workflow](.github/workflows/idle-watchdog.yml). Enabling it stores Bunny credentials as **GitHub Actions secrets in your repository**. Review the workflow and repository access first.
+Look for `Watchdog endpoint: reachable`, `Tracked media bytes since container startup:` greater than zero, and `Minutes since last tracked media:` close to zero. If this check fails or records **0 bytes**, do **not** enable the watchdog: Bunny's CDN or the streaming route may bypass the activity gateway.
 
-**The schedule is best effort**; GitHub may delay or skip runs. It does not guarantee a precise billing cutoff, and it does not automatically start the server when Lampa opens.
+**2. Install the four GitHub Actions secrets to your own repository, enable the workflow, and perform a manual smoke test:**
+
+```bash
+gh auth status
+~/.local/bin/torrserver-bunny enable-github-watchdog --repo vbrekher/TorrServer-bunny
+# At the secure prompt, review and enter ENABLE.
+gh workflow enable idle-watchdog.yml -R vbrekher/TorrServer-bunny
+gh workflow run idle-watchdog.yml -R vbrekher/TorrServer-bunny
+gh run list -R vbrekher/TorrServer-bunny --workflow idle-watchdog.yml -L 5
+```
+
+The manual run is **not a forced shutdown**. It evaluates the same 60-minute idle condition: while video has recently played, it must leave the server running.
+
+**3. Leave the server running and do not play video for at least 60 minutes.** The scheduled workflow checks about every 10 minutes. Once its two consecutive checks both confirm ≥60 minutes of inactivity, it requests `undeploy`. To verify a real stop:
+
+```bash
+gh run list -R vbrekher/TorrServer-bunny --workflow idle-watchdog.yml -L 10
+gh run view --log -R vbrekher/TorrServer-bunny
+~/.local/bin/torrserver-bunny status
+```
+
+In the logs look for `IDLE_STOP_REQUESTED`, then verify in Bunny `status` or your dashboard that the app is no longer `active`. A successful workflow alone does **not** prove shutdown — it may have correctly skipped stopping because a stream was active.
+
+> [!NOTE]
+> The shutdown happens **after** 60 minutes of no tracked streaming, usually within the next ten-minute check, **not necessarily at exactly 60:00**. GitHub scheduled runs can be delayed or skipped. On every new container start, gateway counters reset; for safety, the controller will **not auto-stop until it has observed media bytes** in that container. If you want to stop immediately, use `torrserver-bunny stop`. Allocated volume and Anycast IPv4 may remain billable.
 
 <details>
 <summary><strong>🔧 Advanced troubleshooting and useful commands</strong></summary>
@@ -196,10 +224,10 @@ More detail: **[Technical deployment guide](bunny/README.md)**.
 | Real Magic Containers app created | ✅ Confirmed from owner deployment on 2 November 2026 |
 | Application `active`, HTTPS CDN URL received | ✅ Confirmed from Bunny API output |
 | Python CLI and Go gateway | ✅ Automated tests in [GitHub Actions](https://github.com/vbrekher/TorrServer-bunny/actions/workflows/bunny-cli-tests.yml) |
-| BitTorrent streaming through Lampa on physical Samsung Tizen | 🧪 Not yet verified |
+| Streaming through Lampa | ✅ Playback confirmed by the project owner (4 Nov 2026); physical-device compatibility has not been independently audited |
 | Scheduled 60-minute shutdown on live Bunny | 🧪 Not yet verified |
 
-**Important distinction:** an active container and a working HTTPS endpoint do **not** prove successful TV playback. This project does not provide or distribute movies, catalogs or copyrighted material.
+**Verification boundary:** Lampa streaming is now **owner-confirmed** (4 Nov 2026). It is not an independent compatibility certification for every Samsung/Tizen device or format. Scheduled idle shutdown is still **unverified** until a live stop is observed. This project does not provide or distribute movies, catalogs or copyrighted material.
 
 ## ❤️ Built on open source
 
