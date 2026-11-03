@@ -282,6 +282,85 @@ class CLIConfigTests(unittest.TestCase):
                     with redirect_stdout(io.StringIO()): cli.status()
                 self.assertIsNone(cli.load_config()['url'])
 
+    def test_activity_command_is_read_only_and_reports_tracking(self):
+        import io
+        from contextlib import redirect_stdout
+        with patch.object(cli, 'activity_snapshot', return_value=(
+                {'active_streams': 0, 'last_media_unix': 1000, 'media_bytes': 20480}, 4601)):
+            stream = io.StringIO()
+            with redirect_stdout(stream):
+                cli.activity_status()
+            result = stream.getvalue()
+            self.assertIn('Tracked media bytes since container startup: 20480', result)
+            self.assertIn('Minutes since last tracked media: 60', result)
+            self.assertIn('Eligible to stop after 60 idle minutes: yes', result)
+            self.assertIn('READ_ONLY', result)
+
+    def test_activity_warning_if_no_media_was_tracked(self):
+        import io
+        from contextlib import redirect_stdout
+        with patch.object(cli, 'activity_snapshot', return_value=(
+                {'active_streams': 0, 'last_media_unix': 1000, 'media_bytes': 0}, 1010)):
+            stream = io.StringIO()
+            with redirect_stdout(stream):
+                cli.activity_status()
+            self.assertIn('No media bytes tracked', stream.getvalue())
+
+    def test_idle_check_fails_safe_when_no_video_bytes(self):
+        import io
+        from contextlib import redirect_stdout
+        state = {'active_streams': 0, 'last_media_unix': 100, 'media_bytes': 0}
+        cfg = {'api_key': 'hidden', 'app_id': 'app', 'url': 'https://example.bunny.run',
+               'watchdog_token': 'hidden'}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'get_activity', return_value=state), \
+             patch.object(cli.time, 'time', return_value=5000), \
+             patch.object(cli, 'request') as remote, \
+             redirect_stdout(io.StringIO()) as output:
+            cli.idle_check(SimpleNamespace(remote=False, minutes=60, no_pause=True))
+            self.assertIn('SAFE_NO_STOP', output.getvalue())
+            remote.assert_not_called()
+
+    def test_idle_check_undeploys_only_after_two_valid_idle_reads(self):
+        import io
+        from contextlib import redirect_stdout
+        cfg = {'api_key': 'hidden', 'app_id': 'app', 'url': 'https://example.bunny.run',
+               'watchdog_token': 'hidden'}
+        old_state = {'active_streams': 0, 'last_media_unix': 100, 'media_bytes': 100000}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'get_activity', return_value=old_state) as tracked, \
+             patch.object(cli.time, 'time', return_value=5000), \
+             patch.object(cli.time, 'sleep'), \
+             patch.object(cli, 'request', return_value=None) as remote, \
+             redirect_stdout(io.StringIO()):
+            cli.idle_check(SimpleNamespace(remote=False, minutes=60, no_pause=False))
+            self.assertEqual(tracked.call_count, 2)
+            remote.assert_called_once_with('POST', '/mc/apps/app/undeploy', 'hidden')
+
+    def test_idle_check_refuses_if_second_read_detects_active_stream(self):
+        import io
+        from contextlib import redirect_stdout
+        cfg = {'api_key': 'hidden', 'app_id': 'app', 'url': 'https://example.bunny.run',
+               'watchdog_token': 'hidden'}
+        old_state = {'active_streams': 0, 'last_media_unix': 100, 'media_bytes': 100000}
+        new_state = {'active_streams': 1, 'last_media_unix': 4990, 'media_bytes': 100100}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'get_activity', side_effect=[old_state,new_state]), \
+             patch.object(cli.time, 'time', return_value=5000), \
+             patch.object(cli.time, 'sleep'), \
+             patch.object(cli, 'request') as remote, \
+             redirect_stdout(io.StringIO()):
+            cli.idle_check(SimpleNamespace(remote=False, minutes=60, no_pause=False))
+            remote.assert_not_called()
+
+    def test_github_watchdog_blocks_unobserved_playback(self):
+        cfg = {'url': 'https://example.bunny.run'}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'activity_snapshot', return_value=(
+                 {'active_streams':0, 'last_media_unix': 100, 'media_bytes':0}, 2000)):
+            with self.assertRaisesRegex(cli.DeploymentError, 'No media bytes tracked'):
+                cli.github_watchdog(SimpleNamespace(repo='vbrekher/TorrServer-bunny'))
+
     def test_idle_active_prevents_shutdown(self):
         now = time.time()
         self.assertFalse(cli.can_stop({'active_streams':1, 'last_media_unix': now-86400}, now, 3600))
