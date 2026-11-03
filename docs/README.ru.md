@@ -121,6 +121,15 @@ curl -fsSL --retry 3 \
 
 Для включения потребуется авторизованный [GitHub CLI](https://cli.github.com/) (`gh`) на Mac/Linux и собственный репозиторий `vbrekher/TorrServer-bunny`. Запускаемый на Mac `torrserver-bunny` уже хранит нужные секреты локально.
 
+**Сначала обновите локальную программу без создания нового приложения Bunny:**
+
+```bash
+curl -fsSL --retry 3 \\
+  https://raw.githubusercontent.com/vbrekher/TorrServer-bunny/master/install-bunny.sh \\
+  -o /tmp/torrserver-bunny-update.sh \\
+  && sh /tmp/torrserver-bunny-update.sh status
+```
+
 **Шаг 1. Проверить, видит ли сервер воспроизведение.** Запустите существующий сервер, посмотрите через Lampa хотя бы несколько секунд тестовое видео и **остановите только воспроизведение**, а не контейнер. Затем выполните:
 
 ```bash
