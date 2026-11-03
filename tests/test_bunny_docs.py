@@ -54,6 +54,7 @@ class DocumentationTests(unittest.TestCase):
             "torrserver-bunny start", "torrserver-bunny stop",
             "torrserver-bunny status", "status --show-credentials",
             "CREATE", "Anycast", ":32000", "Scheduled idle shutdown is still **unverified**", "owner-confirmed",
+            "torrserver-bunny activity", "gh workflow enable idle-watchdog.yml",
             "50 GB", "$0.58", "$2.68", "YouROK",
             "bunny-cli-tests.yml",
         ):
@@ -68,6 +69,7 @@ class DocumentationTests(unittest.TestCase):
                     "torrserver-bunny start", "torrserver-bunny stop",
                     "torrserver-bunny status", "status --show-credentials",
                     "enable-github-watchdog", "torrserver-bunny doctor",
+                    "torrserver-bunny activity",
                 ):
                     self.assertIn(command, text)
                 for token in ("50", "0,50" if lang != "en" else "0.50",
