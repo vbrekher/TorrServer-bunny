@@ -158,6 +158,15 @@ An **illustrative Blu-ray-size movie** streamed over **3 hours** to one viewer i
 
 To activate it, you need an authenticated [GitHub CLI](https://cli.github.com/) (`gh`) on your Mac/Linux computer and the repository **you own**: `vbrekher/TorrServer-bunny`. The local installer already keeps your Bunny API key, app ID, HTTPS URL and watchdog token in a restricted configuration file. **Never paste or commit these credentials into GitHub.**
 
+**First, update the local CLI WITHOUT creating a new Bunny app:**
+
+```bash
+curl -fsSL --retry 3 \\
+  https://raw.githubusercontent.com/vbrekher/TorrServer-bunny/master/install-bunny.sh \\
+  -o /tmp/torrserver-bunny-update.sh \\
+  && sh /tmp/torrserver-bunny-update.sh status
+```
+
 **1. Start the existing app and briefly play a test stream in Lampa.** After playback, stop the video but **leave the Bunny container running**. Then verify the gateway counter (this is read-only):
 
 ```bash
