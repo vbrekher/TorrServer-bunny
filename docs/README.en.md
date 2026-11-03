@@ -116,6 +116,15 @@ You do not reinstall or create another Bunny app for each movie.
 
 You need an authenticated [GitHub CLI](https://cli.github.com/) (`gh`) on your computer and your **own** repository, `vbrekher/TorrServer-bunny`. The local CLI stores the required values in a protected configuration file.
 
+**First, update your existing local CLI without creating another Bunny app:**
+
+```bash
+curl -fsSL --retry 3 \\
+  https://raw.githubusercontent.com/vbrekher/TorrServer-bunny/master/install-bunny.sh \\
+  -o /tmp/torrserver-bunny-update.sh \\
+  && sh /tmp/torrserver-bunny-update.sh status
+```
+
 **Step 1 — Verify actual media tracking.** Start the existing app, play a permitted test video briefly through Lampa, then stop playback **without stopping the Bunny container**:
 
 ```bash
