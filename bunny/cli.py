@@ -610,6 +610,44 @@ def get_activity(url, token):
     return request('GET', f'{base}/__bunny/activity?ts={stamp}', extra_headers={'X-Watchdog-Token': token, 'Cache-Control': 'no-cache'})
 
 
+def activity_snapshot():
+    """Read protected gateway counters. This NEVER starts/stops a container."""
+    c = load_config()
+    url = canonical_https_endpoint(c.get('url'))
+    if not url:
+        raise DeploymentError('No validated HTTPS CDN URL in local config; run status first')
+    token = c.get('watchdog_token')
+    if not token:
+        raise DeploymentError('No watchdog token in local config')
+    stats = get_activity(url, token)
+    now = time.time()
+    # Validate the same activity fields used by the shutdown decision.
+    can_stop(stats, now, 3600)
+    media_bytes = stats.get('media_bytes')
+    if not isinstance(media_bytes, int) or isinstance(media_bytes, bool) or media_bytes < 0:
+        raise DeploymentError('Gateway did not return valid media_bytes; cannot verify stream tracking')
+    return stats, now
+
+
+def activity_status():
+    """Read-only preflight: prove that the gateway is reachable and counting bytes."""
+    stats, now = activity_snapshot()
+    last = stats['last_media_unix']
+    age_seconds = max(0, int(now - last))
+    print('Watchdog endpoint: reachable (protected gateway activity validated)')
+    print('Active streaming requests:', stats['active_streams'])
+    print('Tracked media bytes since container startup:', stats['media_bytes'])
+    print('Minutes since last tracked media:', age_seconds // 60)
+    print('Eligible to stop after 60 idle minutes:',
+          'yes' if can_stop(stats, now, 3600) else 'no')
+    if stats['media_bytes'] == 0:
+        print('WARNING: No media bytes tracked since this container started. '
+              'Play a test stream through the HTTPS CDN URL, then rerun activity.')
+        print('Do not enable automatic shutdown until real playback is counted; '
+              'the player may bypass the gateway.')
+    print('READ_ONLY: this command never deploys or undeploys the app.')
+
+
 def can_stop(stats, now, idle_seconds):
     if not isinstance(stats, dict):
         raise DeploymentError('Unexpected activity response; refusing to stop')
@@ -649,8 +687,15 @@ def idle_check(args):
 
 def github_watchdog(args):
     c = load_config()
-    if not c.get('url'):
-        raise DeploymentError('Run set-url first: cannot monitor without HTTPS endpoint')
+    if not canonical_https_endpoint(c.get('url')):
+        raise DeploymentError('Run status first: need verified HTTPS CDN URL to monitor')
+    print('Checking the protected gateway before enabling scheduled shutdown...')
+    stats, _ = activity_snapshot()
+    if stats['media_bytes'] == 0:
+        raise DeploymentError('No media bytes tracked yet; play a real test stream via the HTTPS CDN URL, '
+                              'then run activity. Refusing to enable a watchdog that could stop active playback.')
+    print('Gateway reached; recorded media bytes:', stats['media_bytes'])
+
     if subprocess.run(['which', 'gh'], capture_output=True).returncode:
         raise DeploymentError('GitHub CLI (gh) is required. Install and authenticate, or configure secrets manually.')
     repo = args.repo or ask('Your OWN GitHub repository with the watchdog workflow (owner/repo)', 'vbrekher/TorrServer-bunny')
@@ -684,6 +729,7 @@ def main(argv=None):
     st = sub.add_parser('status', help='Read Bunny app state and repair URL from HTTPS CDN endpoint')
     st.add_argument('--show-credentials', action='store_true', help='Display TorrServer password locally (keep output private)')
     sub.add_parser('doctor', help='Read-only check for apps after a Bunny HTTP 500')
+    sub.add_parser('activity', help='Read-only check: last media activity, active streams and gateway reachability')
     sub.add_parser('enable-peers', help='Add optional paid BitTorrent Anycast endpoint to existing app')
     u = sub.add_parser('set-url', help='Store exact HTTPS URL shown in Bunny dashboard')
     u.add_argument('url')
@@ -699,6 +745,7 @@ def main(argv=None):
         elif args.command in ('start', 'stop'): lifecycle(args.command)
         elif args.command == 'status': status(args.show_credentials)
         elif args.command == 'doctor': doctor()
+        elif args.command == 'activity': activity_status()
         elif args.command == 'enable-peers':
             c = load_config()
             print('Enabling a separately billed Anycast IPv4 endpoint. Type ENABLE to confirm.')
