@@ -115,51 +115,75 @@ Hieronder staat een **rekenvoorbeeld**, geen vaste prijs. Stel dat je met **éé
 
 Officiële prijzen (gecontroleerd op **2 november 2026**): [Magic Containers](https://bunny.net/magic-containers/) · [Bunny CDN-prijzen](https://bunny.net/pricing/cdn/).
 
-## 6. Automatisch stoppen na 60 minuten inschakelen en testen
+## 6. Automatisch stoppen na 60 minuten — eenvoudige uitleg
 
-**Vastgesteld probleem:** GitHub Actions heeft de watchdog al uitgevoerd, maar runs op 3 november 2026 mislukten omdat de vier vereiste geheimen nog ontbraken: `BUNNY_API_KEY`, `BUNNY_APP_ID`, `BUNNY_PUBLIC_URL` en `BUNNY_WATCHDOG_TOKEN`. De server werd daardoor niet automatisch gestopt. **Deel deze geheimen niet in een chat of in broncode.**
+**Hoe werkt het?** Je start TorrServer, kijkt een film via Lampa en stopt daarna het afspelen. Als er **60 minuten achter elkaar geen gemeten videodata** is en geen actieve media-aanvraag meer loopt, probeert GitHub Actions je Bunny-container te stoppen. **Dit is niet 60 minuten na het starten** en ook geen gegarandeerde timer tot op de seconde.
 
-Je hebt de aangemelde [GitHub CLI](https://cli.github.com/) (`gh`) nodig op je Mac/Linux-computer en je **eigen** repository `vbrekher/TorrServer-bunny`. De lokale CLI bewaart alle vereiste waarden in een beveiligd configuratiebestand.
+### Eenmalig instellen
 
-**Werk eerst de lokale CLI bij, zonder een nieuwe Bunny-app aan te maken:**
+**1. Bereid GitHub voor.** Installeer [GitHub CLI (`gh`)](https://cli.github.com/), meld je zo nodig aan met `gh auth login` en maak een **eigen fork van [TorrServer-bunny](https://github.com/vbrekher/TorrServer-bunny)**. Je fork moet `.github/workflows/idle-watchdog.yml` bevatten. Alleen de eigenaar van de originele repository kan die direct gebruiken. **Sla je Bunny API-sleutel nooit op in de repository van iemand anders.**
+
+**2. Werk de CLI op Mac/Linux bij (zonder een tweede server te maken):**
 
 ```bash
-curl -fsSL --retry 3 \\
-  https://raw.githubusercontent.com/vbrekher/TorrServer-bunny/master/install-bunny.sh \\
-  -o /tmp/torrserver-bunny-update.sh \\
+curl -fsSL --retry 3 \
+  https://raw.githubusercontent.com/vbrekher/TorrServer-bunny/master/install-bunny.sh \
+  -o /tmp/torrserver-bunny-update.sh \
   && sh /tmp/torrserver-bunny-update.sh status
 ```
 
-**Stap 1 — Controleren of de gateway videostreams meet.** Start de bestaande server, speel kort een toegestane teststream af in Lampa en stop daarna **alleen het afspelen**, niet de Bunny-container:
+Is je bestaande server `inactive`? Voer `~/.local/bin/torrserver-bunny start` één keer uit en controleer `status` tot `State: active`. **Herhaal `start` niet tijdens `progressing` of na een time-out zonder eerst de status te bekijken.**
+
+**3. Speel een testvideo via Lampa ongeveer één minuut af en controleer:**
 
 ```bash
 ~/.local/bin/torrserver-bunny activity
 ```
 
-Je moet `Watchdog endpoint: reachable` en **`Tracked media bytes since container startup` groter dan nul** zien. Staat er nul of verschijnt er een fout, activeer de automatische stop **nog niet**: de stream kan buiten de meetgateway om lopen of de CDN stuurt de beveiligde header niet door. **Als je sinds het starten van de huidige container nog geen video hebt afgespeeld, is nul bytes normaal.** Zodra de nieuwe Docker-image op de **bestaande app** is uitgerold, geven de uitgebreidere tellers het aantal gatewayverzoeken, herkende streams en videodata via onbekende paden weer. Met `~/.local/bin/torrserver-bunny activity --probe` controleer je veilig de `/echo`-route zonder torrents op te halen of Bunny-resources te starten/stoppen. Alleen de CLI op je Mac bijwerken vernieuwt niet de actieve Docker-container.
+Bij `Tracked media bytes since container startup` moet **meer dan nul** staan. Dan ziet de gateway het afspelen. Zie je `0`? Speel eerst een video af **na de huidige containerstart** en controleer opnieuw. **Schakel automatisch stoppen niet in zolang de teller op nul staat.** De optionele opdracht `activity --probe` vereist de bijgewerkte Docker-image in de bestaande Bunny-app.
 
-**Stap 2 — GitHub Actions Secrets instellen en veilig handmatig testen:**
+**4. Koppel de automatische controle aan je eigen GitHub-repository:**
 
 ```bash
+# Vervang YOUR_USERNAME door je eigen GitHub-gebruikersnaam.
+REPO="YOUR_USERNAME/TorrServer-bunny"
+
 gh auth status
-~/.local/bin/torrserver-bunny enable-github-watchdog --repo vbrekher/TorrServer-bunny
-gh workflow enable idle-watchdog.yml -R vbrekher/TorrServer-bunny
-gh workflow run idle-watchdog.yml -R vbrekher/TorrServer-bunny
-gh run list -R vbrekher/TorrServer-bunny --workflow idle-watchdog.yml -L 5
+~/.local/bin/torrserver-bunny enable-github-watchdog --repo "$REPO"
+# Type ENABLE when asked; continue only after "Secrets installed".
+gh workflow enable idle-watchdog.yml -R "$REPO"
+gh workflow run idle-watchdog.yml -R "$REPO"
+gh run list --workflow idle-watchdog.yml -R "$REPO" -L 5
 ```
 
-Bevestig tijdens de instelling met `ENABLE`. De installer zet de vier geheime waarden uit je lokale beveiligde bestand in **GitHub Actions Secrets van je eigen repository**. Een handmatige workflowrun **dwingt de server niet uit te schakelen** zolang er geen volledige 60 minuten inactiviteit zijn.
+Typ `ENABLE` wanneer daarom wordt gevraagd. De CLI plaatst vier waarden in **GitHub Actions Secrets** van jouw repository. Ga **alleen verder na het bericht `Secrets installed`**. Werkt `gh auth status` niet, meld je eerst aan met `gh auth login`. Zet nooit sleutels of wachtwoorden in publieke GitHub-bestanden.
 
-**Stap 3 — Werkelijke automatische uitschakeling controleren.** Stop het afspelen in Lampa, maar **laat de Bunny-app draaien**. Speel minimaal **60 minuten** niets af. GitHub Actions controleert ongeveer elke **10 minuten** of er activiteit is. Zodra het systeem een uur zonder videodata vaststelt, vraagt het `undeploy` aan.
+### Dagelijks gebruik
+
+**Starten:** `~/.local/bin/torrserver-bunny start`. Controleer met `status` of `State: active` verschijnt. Lampa kan een gestopte container niet zelf starten.
+
+**Kijken:** Kijk zoals gewoonlijk via Lampa.
+
+**Klaar:** Stop de film, maar laat de Bunny-app aan. Na **minstens 60 minuten zonder gemeten videodata** kan GitHub Actions (ongeveer elke 10 minuten) `undeploy` aanvragen. Nieuwe videodata beginnen de periode opnieuw. GitHub kan geplande controles vertragen of overslaan.
+
+**Controleren of de server is gestopt:**
 
 ```bash
-gh run list -R vbrekher/TorrServer-bunny --workflow idle-watchdog.yml -L 10
+REPO="YOUR_USERNAME/TorrServer-bunny"
+gh run list --workflow idle-watchdog.yml -R "$REPO" -L 10
 ~/.local/bin/torrserver-bunny status
 ```
 
-Bekijk de laatste GitHub Actions-logs en zoek `IDLE_STOP_REQUESTED`. Een geslaagde workflow betekent niet automatisch dat de app is gestopt: de workflow kan terecht hebben besloten dat de stream nog actief was. Controleer in Bunny dat de status niet meer `active` is.
+Open GitHub → **Actions → Stop TorrServer after 60 minutes without media streaming**. `IDLE_STOP_REQUESTED` betekent dat uitschakeling is **aangevraagd**; controleer met `status` of de app echt `inactive` is. Een groen GitHub Actions-resultaat is op zichzelf geen bewijs.
 
-**Let op:** het is geen precieze timer van 60:00. Meestal stopt de app bij de eerstvolgende controle na 60 minuten, maar GitHub Actions kan vertraagd zijn. De activiteitstellers worden bij herstart gereset. Voor de veiligheid stopt de controller de server niet automatisch totdat deze videobytes heeft gemeten sinds het opstarten. Met `torrserver-bunny stop` kun je altijd handmatig stoppen. Opslag en Anycast IPv4 kunnen doorberekend worden.
+### Belangrijk
+
+- **Sinds de start geen video bekeken?** De teller blijft `0`; de beveiliging laat de container dan **niet automatisch stoppen**. Gebruik handmatig `~/.local/bin/torrserver-bunny stop`.
+- **Tijdens een film:** herkende actieve mediaverzoeken verhinderen het stoppen; onbekende videoroutes moeten afzonderlijk worden getest.
+- **Je Mac mag uit:** na de installatie voert GitHub Actions de controles online uit.
+- **Kosten:** na een stop kunnen opslag en toegewezen Anycast IPv4 nog steeds geld kosten.
+- **Beveiliging:** Bunny API-sleutels hebben veel rechten. Beheer je eigen GitHub-repository en controleer de workflows.
+- **Huidige status:** afspelen via Lampa is door de eigenaar bevestigd; een geslaagde automatische stop na 60 minuten is **nog niet bevestigd**.
 
 ## 7. Problemen oplossen
 
