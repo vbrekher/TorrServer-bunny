@@ -1,5 +1,8 @@
 """Documentation smoke checks; no Bunny API credentials or network calls required."""
 import pathlib
+import os
+import subprocess
+import tempfile
 import ast
 import re
 import unittest
@@ -71,6 +74,79 @@ class DocumentationTests(unittest.TestCase):
         ast.parse(match.group(1), filename="installer-embedded-validator")
         self.assertIn("required=(", match.group(1))
         self.assertIn("def activity_probe(", match.group(1))
+
+    def test_installer_without_github_api_and_safe_403_fallback(self):
+        """Exercise the actual POSIX installer offline, with fake git and curl."""
+        installer = ROOT / "install-bunny.sh"
+        cli = ROOT / "bunny/cli.py"
+        sha = "a" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            home = pathlib.Path(tmp) / "home"
+            home.mkdir()
+            bin_dir = pathlib.Path(tmp) / "fake-bin"
+            bin_dir.mkdir()
+            git = bin_dir / "git"
+            git.write_text(
+                '#!/bin/sh\n'
+                'if [ "$TS_TEST_GIT_MODE" = "fail" ]; then exit 128; fi\n'
+                'printf "%s\\trefs/heads/master\\n" "$TS_TEST_SHA"\n',
+                encoding="utf-8",
+            )
+            git.chmod(0o755)
+            curl = bin_dir / "curl"
+            curl.write_text(
+                '#!/bin/sh\n'
+                'url=""\noutput=""\n'
+                'while [ "$#" -gt 0 ]; do\n'
+                '  if [ "$1" = "-o" ]; then shift; output="$1"; '
+                'else case "$1" in https://*) url="$1";; esac; fi\n'
+                '  shift\n'
+                'done\n'
+                'printf "%s" "$url" > "$TS_TEST_URL_LOG"\n'
+                'case "$url" in *api.github.com*) exit 99;; esac\n'
+                'if [ "$TS_TEST_FAIL_CURL" = "1" ]; then\n'
+                '  echo "curl: (22) The requested URL returned error: 403" >&2\n'
+                '  exit 22\n'
+                'fi\n'
+                'cp "$TS_TEST_CLI_SOURCE" "$output"\n',
+                encoding="utf-8",
+            )
+            curl.chmod(0o755)
+            url_log = pathlib.Path(tmp) / "requested-url"
+            env = {**os.environ, "HOME": str(home),
+                   "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+                   "TS_TEST_SHA": sha, "TS_TEST_CLI_SOURCE": str(cli),
+                   "TS_TEST_URL_LOG": str(url_log)}
+            def run(*, git_mode="ok", fail_curl=False):
+                return subprocess.run(
+                    ["sh", str(installer), "--help"],
+                    env={**env, "TS_TEST_GIT_MODE": git_mode,
+                         "TS_TEST_FAIL_CURL": "1" if fail_curl else "0"},
+                    text=True, capture_output=True, timeout=30,
+                )
+
+            result = run()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(f"/{sha}/bunny/cli.py", url_log.read_text())
+            self.assertNotIn("api.github.com", result.stdout + result.stderr)
+            installed = home / ".local/share/torrserver-bunny/cli.py"
+            self.assertTrue(installed.is_file())
+            self.assertIn("activity_probe", installed.read_text())
+
+            # Git transport failure (possibly HTTP 403) -> raw master fallback.
+            result = run(git_mode="fail")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("/master/bunny/cli.py?cache_bust=", url_log.read_text())
+            self.assertIn("Git revision lookup unavailable", result.stdout)
+            self.assertNotIn("JSONDecodeError", result.stderr)
+
+            # Raw 403 must preserve the user's prior installation.
+            before = installed.read_bytes()
+            result = run(git_mode="fail", fail_curl=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Existing local installation left unchanged", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertEqual(before, installed.read_bytes())
 
     def test_landing_page_retains_first_time_safety_and_truth(self):
         text = (ROOT / "README.md").read_text(encoding="utf-8")
