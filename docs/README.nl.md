@@ -136,7 +136,7 @@ curl -fsSL --retry 3 \\
 ~/.local/bin/torrserver-bunny activity
 ```
 
-Je moet `Watchdog endpoint: reachable` en **`Tracked media bytes since container startup` groter dan nul** zien. Staat er nul of verschijnt er een fout, activeer de automatische stop **nog niet**: de stream kan buiten de meetgateway om lopen of de CDN stuurt de beveiligde header niet door.
+Je moet `Watchdog endpoint: reachable` en **`Tracked media bytes since container startup` groter dan nul** zien. Staat er nul of verschijnt er een fout, activeer de automatische stop **nog niet**: de stream kan buiten de meetgateway om lopen of de CDN stuurt de beveiligde header niet door. **Als je sinds het starten van de huidige container nog geen video hebt afgespeeld, is nul bytes normaal.** Zodra de nieuwe Docker-image op de **bestaande app** is uitgerold, geven de uitgebreidere tellers het aantal gatewayverzoeken, herkende streams en videodata via onbekende paden weer. Met `~/.local/bin/torrserver-bunny activity --probe` controleer je veilig de `/echo`-route zonder torrents op te halen of Bunny-resources te starten/stoppen. Alleen de CLI op je Mac bijwerken vernieuwt niet de actieve Docker-container.
 
 **Stap 2 — GitHub Actions Secrets instellen en veilig handmatig testen:**
 
