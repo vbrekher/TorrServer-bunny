@@ -173,7 +173,7 @@ curl -fsSL --retry 3 \\
 ~/.local/bin/torrserver-bunny activity
 ```
 
-Look for `Watchdog endpoint: reachable`, `Tracked media bytes since container startup:` greater than zero, and `Minutes since last tracked media:` close to zero. If this check fails or records **0 bytes**, do **not** enable the watchdog: Bunny's CDN or the streaming route may bypass the activity gateway.
+Look for `Watchdog endpoint: reachable`, `Tracked media bytes since container startup:` greater than zero, and `Minutes since last tracked media:` close to zero. If this check fails or records **0 bytes**, do **not** enable the watchdog: Bunny's CDN or the streaming route may bypass the activity gateway. **If you have not actually streamed since the current container started, zero bytes is expected.** The updated gateway exposes privacy-safe counters for gateway requests and recognized/unrecognized media. Once the updated container image is deployed to the **existing app**, use `torrserver-bunny activity --probe` to test the CDN-to-gateway route without accessing torrents. A CLI update alone does not replace the running container image.
 
 **2. Install the four GitHub Actions secrets to your own repository, enable the workflow, and perform a manual smoke test:**
 
