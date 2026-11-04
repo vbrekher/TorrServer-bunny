@@ -49,21 +49,34 @@ def request(method, path, key=None, payload=None, base=API, extra_headers=None):
     if payload is not None:
         headers['Content-Type'] = 'application/json'
         data = json.dumps(payload).encode('utf-8')
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=headers, method=method, data=data), timeout=25) as response:
-            body = response.read(512 * 1024)
-            if not body:
-                return None
-            try:
-                return json.loads(body)
-            except ValueError:
-                return body.decode('utf-8', 'replace')
-    except urllib.error.HTTPError as exc:
-        # Do not print original URL or request body (could contain secrets).
-        safe = exc.read(1200).decode('utf-8', 'replace')
-        raise DeploymentError(f'Bunny/remote HTTP {exc.code}: {safe}') from None
-    except urllib.error.URLError as exc:
-        raise DeploymentError(f'Network request failed: {exc.reason}') from None
+    # Only idempotent GET requests may be retried. POST /deploy and /undeploy
+    # MUST NOT be repeated after a timeout: Bunny may already be processing them.
+    attempts = 2 if method.upper() == 'GET' else 1
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers, method=method, data=data), timeout=25) as response:
+                body = response.read(512 * 1024)
+                if not body:
+                    return None
+                try:
+                    return json.loads(body)
+                except ValueError:
+                    return body.decode('utf-8', 'replace')
+        except urllib.error.HTTPError as exc:
+            # Do not print the request URL or request body (may include secrets).
+            # HTTP response has already been received; leave interpretation to caller.
+            safe = exc.read(1200).decode('utf-8', 'replace')
+            raise DeploymentError(f'Bunny/remote HTTP {exc.code}: {safe}') from None
+        except (urllib.error.URLError, TimeoutError) as exc:
+            reason = getattr(exc, 'reason', exc)
+            is_timeout = isinstance(reason, TimeoutError) or 'timed out' in str(reason).lower()
+            if is_timeout and attempt + 1 < attempts:
+                print('Read-only GET timed out; retrying once without changing the app.', file=sys.stderr)
+                continue
+            if method.upper() != 'GET' and is_timeout:
+                raise DeploymentError('Bunny request timed out; the deploy/undeploy outcome is UNKNOWN. '
+                                      'Do NOT repeat start/stop. Check status or Bunny Dashboard.') from None
+            raise DeploymentError(f'Network request failed: {reason}') from None
 
 
 def load_config():
@@ -578,7 +591,13 @@ def status(show_credentials=False):
     data = request('GET', f'/mc/apps/{urllib.parse.quote(c["app_id"], safe="")}', c['api_key'])
     print('App ID:', c['app_id'], 'Region:', c['region'])
     print('State:', (data or {}).get('status', 'See Bunny dashboard') if isinstance(data, dict) else 'See Bunny dashboard')
-    fresh = fetch_url(c['api_key'], c['app_id'])
+    try:
+        fresh = fetch_url(c['api_key'], c['app_id'])
+    except DeploymentError as exc:
+        # Status of the app has already been read. An optional secondary
+        # endpoints read must not mask it or delete a previously verified URL.
+        print('Endpoint inventory temporarily unavailable; keeping validated cached URL.')
+        fresh = None
     old = c.get('url')
     if fresh:
         if old != fresh:
