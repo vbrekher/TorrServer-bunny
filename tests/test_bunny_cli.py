@@ -308,6 +308,49 @@ class CLIConfigTests(unittest.TestCase):
             self.assertIn('Minutes since gateway startup (no video tracked yet)', stream.getvalue())
             self.assertIn('Eligible to stop after 60 idle minutes: no', stream.getvalue())
 
+    def test_activity_shows_route_class_diagnostics_without_any_urls(self):
+        import io
+        from contextlib import redirect_stdout
+        state = {'active_streams': 0, 'last_media_unix': 1000, 'media_bytes': 0,
+                 'proxy_requests': 7, 'media_requests': 0, 'other_requests': 7,
+                 'other_response_bytes': 8912, 'unclassified_media_bytes': 3000}
+        with patch.object(cli, 'activity_snapshot', return_value=(state, 1010)):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                cli.activity_status()
+            result = output.getvalue()
+            self.assertIn('Gateway proxied requests since startup: 7', result)
+            self.assertIn('Recognized stream requests: 0', result)
+            self.assertIn('Video-like bytes on unrecognized paths: 3000', result)
+            self.assertIn('HTTP traffic reached the gateway but no recognized', result)
+            self.assertIn('Automatic shutdown is blocked', result)
+            self.assertNotIn('http://', result)
+
+    def test_idle_check_refuses_unclassified_video_in_both_passes(self):
+        import io
+        from contextlib import redirect_stdout
+        base = {'active_streams': 0, 'last_media_unix': 100,
+                'media_bytes': 20480, 'unclassified_media_bytes': 100}
+        cfg = {'api_key': 'hidden', 'app_id': 'app', 'url': 'https://example.bunny.run',
+               'watchdog_token': 'hidden'}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'get_activity', return_value=base), \
+             patch.object(cli.time, 'time', return_value=5000), \
+             patch.object(cli, 'request') as remote, \
+             redirect_stdout(io.StringIO()) as output:
+            cli.idle_check(SimpleNamespace(remote=False, minutes=60, no_pause=True))
+            self.assertIn('SAFE_NO_STOP', output.getvalue())
+            remote.assert_not_called()
+
+    def test_watchdog_enrollment_refuses_unclassified_video(self):
+        cfg = {'url': 'https://example.bunny.run'}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'activity_snapshot', return_value=(
+                 {'active_streams': 0, 'last_media_unix': 100,
+                  'media_bytes': 10000, 'unclassified_media_bytes': 500}, 5000)):
+            with self.assertRaisesRegex(cli.DeploymentError, 'Unclassified media response'):
+                cli.github_watchdog(SimpleNamespace(repo='vbrekher/TorrServer-bunny'))
+
     def test_idle_check_fails_safe_when_no_video_bytes(self):
         import io
         from contextlib import redirect_stdout
