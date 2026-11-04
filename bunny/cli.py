@@ -626,6 +626,11 @@ def activity_snapshot():
     media_bytes = stats.get('media_bytes')
     if not isinstance(media_bytes, int) or isinstance(media_bytes, bool) or media_bytes < 0:
         raise DeploymentError('Gateway did not return valid media_bytes; cannot verify stream tracking')
+    for field in ('proxy_requests', 'media_requests', 'other_requests',
+                  'other_response_bytes', 'unclassified_media_bytes'):
+        value = stats.get(field)
+        if value is not None and (type(value) is not int or value < 0):
+            raise DeploymentError('Unexpected gateway diagnostic field: ' + field)
     return stats, now
 
 
@@ -637,6 +642,14 @@ def activity_status():
     print('Watchdog endpoint: reachable (protected gateway activity validated)')
     print('Active streaming requests:', stats['active_streams'])
     print('Tracked media bytes since container startup:', stats['media_bytes'])
+    if 'proxy_requests' in stats:
+        print('Gateway proxied requests since startup:', stats['proxy_requests'])
+        print('  Recognized stream requests:', stats.get('media_requests', 'unknown'))
+        print('  Other requests:', stats.get('other_requests', 'unknown'))
+        print('  Other response bytes:', stats.get('other_response_bytes', 'unknown'))
+        print('  Video-like bytes on unrecognized paths:', stats.get('unclassified_media_bytes', 'unknown'))
+    else:
+        print('Extended gateway route diagnostics: unavailable in running container image')
     if stats['media_bytes'] == 0:
         print('Minutes since gateway startup (no video tracked yet):', age_seconds // 60)
     else:
@@ -644,10 +657,21 @@ def activity_status():
     eligible = stats['media_bytes'] > 0 and can_stop(stats, now, 3600)
     print('Eligible to stop after 60 idle minutes:', 'yes' if eligible else 'no')
     if stats['media_bytes'] == 0:
-        print('WARNING: No media bytes tracked since this container started. '
-              'Play a test stream through the HTTPS CDN URL, then rerun activity.')
+        print('WARNING: No media bytes tracked since this container started.')
+        if stats.get('proxy_requests') == 0:
+            print('No HTTP requests reached this gateway. Check the exact CDN URL used in Lampa or CDN cache.')
+        elif stats.get('media_requests') == 0:
+            print('HTTP traffic reached the gateway but no recognized /stream or /play requests.')
+            print('Verify that video was played after this container started, using this HTTPS CDN URL.')
+        elif stats.get('media_requests', 0) > 0:
+            print('Stream requests arrived, but no response bytes were measured. Check Bunny app logs.')
+        else:
+            print('Play a stream through this HTTPS CDN URL, then rerun activity.')
         print('Do not enable automatic shutdown until real playback is counted; '
               'the player may bypass the gateway.')
+    if stats.get('unclassified_media_bytes', 0) > 0:
+        print('WARNING: Video-like response bytes detected on unrecognized routes.')
+        print('Automatic shutdown is blocked until those media routes are classified safely.')
     print('READ_ONLY: this command never deploys or undeploys the app.')
 
 
@@ -680,6 +704,9 @@ def idle_check(args):
     # In that case do NOT stop a potentially active viewer.
     can_stop(first, now, args.minutes * 60)  # validate required fields
     tracked = first.get('media_bytes')
+    if first.get('unclassified_media_bytes', 0) > 0:
+        print('SAFE_NO_STOP: unclassified media response bytes observed; cannot reliably measure playback.')
+        return
     if not isinstance(tracked, int) or isinstance(tracked, bool) or tracked <= 0:
         print('SAFE_NO_STOP: no tracked video bytes since container start. '
               'Play a test stream and verify activity; never stop unverified playback.')
@@ -694,6 +721,9 @@ def idle_check(args):
     time.sleep(5 if not args.no_pause else 0)
     second = get_activity(url, token)
     second_bytes = second.get('media_bytes') if isinstance(second, dict) else None
+    if isinstance(second, dict) and second.get('unclassified_media_bytes', 0) > 0:
+        print('SAFE_NO_STOP: unclassified media detected on second check.')
+        return
     if not isinstance(second_bytes, int) or isinstance(second_bytes, bool) or second_bytes <= 0:
         print('SAFE_NO_STOP: activity counter unavailable on second check.')
         return
@@ -710,6 +740,9 @@ def github_watchdog(args):
         raise DeploymentError('Run status first: need verified HTTPS CDN URL to monitor')
     print('Checking the protected gateway before enabling scheduled shutdown...')
     stats, _ = activity_snapshot()
+    if stats.get('unclassified_media_bytes', 0) > 0:
+        raise DeploymentError('Unclassified media response detected; automatic shutdown could miss playback. '
+                              'Keep watchdog disabled and inspect gateway diagnostics.')
     if stats['media_bytes'] == 0:
         raise DeploymentError('No media bytes tracked yet; play a real test stream via the HTTPS CDN URL, '
                               'then run activity. Refusing to enable a watchdog that could stop active playback.')
