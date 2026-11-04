@@ -1,5 +1,6 @@
 """Documentation smoke checks; no Bunny API credentials or network calls required."""
 import pathlib
+import ast
 import re
 import unittest
 import xml.etree.ElementTree as ET
@@ -58,6 +59,18 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("def activity_snapshot(", cli)
         self.assertIn("def activity_status(", installer)
         self.assertIn("def activity_snapshot(", installer)
+
+    def test_installer_embedded_python_compiles(self):
+        """A shell syntax check cannot detect broken Python in a here-document."""
+        installer = (ROOT / "install-bunny.sh").read_text(encoding="utf-8")
+        match = re.search(
+            r"(?m)^python3 - \"\$TMP\" <<'PY'\n(.*?)\nPY$",
+            installer, re.DOTALL,
+        )
+        self.assertIsNotNone(match, "Installer's Python verification block is missing")
+        ast.parse(match.group(1), filename="installer-embedded-validator")
+        self.assertIn("required=(", match.group(1))
+        self.assertIn("def activity_probe(", match.group(1))
 
     def test_landing_page_retains_first_time_safety_and_truth(self):
         text = (ROOT / "README.md").read_text(encoding="utf-8")
