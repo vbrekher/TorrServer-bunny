@@ -607,7 +607,15 @@ def get_activity(url, token):
     base = url.rstrip('/')
     # Cachebuster defends against CDN caches and stale activity data.
     stamp = str(int(time.time() * 1000))
-    return request('GET', f'{base}/__bunny/activity?ts={stamp}', extra_headers={'X-Watchdog-Token': token, 'Cache-Control': 'no-cache'})
+    try:
+        return request('GET', f'{base}/__bunny/activity?ts={stamp}', extra_headers={'X-Watchdog-Token': token, 'Cache-Control': 'no-cache'})
+    except DeploymentError as exc:
+        message = str(exc)
+        if 'HTTP 503' in message and ('deploying your app' in message.lower() or '<!DOCTYPE html>' in message):
+            raise DeploymentError('Bunny is still deploying the container (HTTP 503). '
+                                  'Run "torrserver-bunny status" until State: active, '
+                                  'then try activity again. Do not repeat start or CREATE.') from None
+        raise
 
 
 def activity_snapshot():
