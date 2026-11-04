@@ -131,7 +131,7 @@ curl -fsSL --retry 3 \\
 ~/.local/bin/torrserver-bunny activity
 ```
 
-The result must show `Watchdog endpoint: reachable` and **`Tracked media bytes since container startup` greater than zero**. If the endpoint returns an error or records zero bytes, **do not enable automatic shutdown yet**: the streaming route or CDN may bypass the activity gateway.
+The result must show `Watchdog endpoint: reachable` and **`Tracked media bytes since container startup` greater than zero**. If the endpoint returns an error or records zero bytes, **do not enable automatic shutdown yet**: the streaming route or CDN may bypass the activity gateway. **If you have not played video since the current container started, zero bytes is expected.** Once the updated Docker image has been deployed to the **existing app**, the extended counters distinguish no requests, recognized streams, and video on unknown paths. Use `~/.local/bin/torrserver-bunny activity --probe` for a safe, no-credentials `/echo` routing check; it does not fetch torrents or deploy/undeploy Bunny resources. Updating the Mac CLI alone does not update the running container image.
 
 **Step 2 — Install your GitHub secrets and perform a safe manual workflow check:**
 
