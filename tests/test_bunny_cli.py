@@ -305,6 +305,8 @@ class CLIConfigTests(unittest.TestCase):
             with redirect_stdout(stream):
                 cli.activity_status()
             self.assertIn('No media bytes tracked', stream.getvalue())
+            self.assertIn('Minutes since gateway startup (no video tracked yet)', stream.getvalue())
+            self.assertIn('Eligible to stop after 60 idle minutes: no', stream.getvalue())
 
     def test_idle_check_fails_safe_when_no_video_bytes(self):
         import io
