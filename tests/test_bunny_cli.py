@@ -351,6 +351,15 @@ class CLIConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(cli.DeploymentError, 'Unclassified media response'):
                 cli.github_watchdog(SimpleNamespace(repo='vbrekher/TorrServer-bunny'))
 
+    def test_gateway_activity_503_while_deploying_is_actionable_and_short(self):
+        html = '<!DOCTYPE html><html><title>We\'re deploying your app!</title>'
+        with patch.object(cli, 'request',
+                          side_effect=cli.DeploymentError('Bunny/remote HTTP 503: ' + html)):
+            with self.assertRaisesRegex(cli.DeploymentError, 'still deploying the container') as ctx:
+                cli.get_activity('https://mc-test.bunny.run', 'token')
+            self.assertNotIn('<!DOCTYPE', str(ctx.exception))
+            self.assertIn('Do not repeat start or CREATE', str(ctx.exception))
+
     def test_activity_probe_reaches_gateway_without_credentials_or_app_changes(self):
         import io
         from contextlib import redirect_stdout
