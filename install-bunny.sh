@@ -9,19 +9,40 @@ BIN_DIR="${HOME}/.local/bin"
 SHARE="${HOME}/.local/share/torrserver-bunny"
 mkdir -p "$BIN_DIR" "$SHARE"
 
-REV="$(curl -fsSL --retry 3 -H 'Accept: application/vnd.github+json' \
-  "https://api.github.com/repos/${REPO}/commits/master" | \
-  python3 -c 'import sys,json,re; s=json.load(sys.stdin).get("sha",""); sys.stdout.write(s if re.fullmatch(r"[0-9a-f]{40}",s) else "")')"
-if [ -z "$REV" ]; then
-  echo 'Could not resolve current GitHub commit; not installing an unverified version.' >&2
-  exit 1
+# GitHub's anonymous REST API can return 403 after rate limiting.
+# Resolve the immutable master SHA via Git smart HTTP instead; no GitHub API
+# request, authentication token, or JSON parsing is required.
+REV=""
+if command -v git >/dev/null 2>&1; then
+  REMOTE_LINE="$(GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 \
+    ls-remote --heads "https://github.com/${REPO}.git" refs/heads/master 2>/dev/null || true)"
+  REV="$(printf '%s\n' "$REMOTE_LINE" | awk '$2 == "refs/heads/master" { print $1; exit }')"
+  if ! printf '%s' "$REV" | grep -Eq '^[0-9a-f]{40}$'; then
+    REV=""
+  fi
+fi
+
+if [ -n "$REV" ]; then
+  echo "Downloading TorrServer CLI at verified Git commit: $REV"
+  SOURCE_URL="https://raw.githubusercontent.com/${REPO}/${REV}/bunny/cli.py"
+  SOURCE_LABEL="$REV"
+else
+  # Fallback for systems without git or where smart HTTP cannot connect.
+  # The cache-busting query avoids previously observed stale master responses;
+  # feature/build verification below will reject an outdated CLI before install.
+  NONCE="$(date +%s)-$$"
+  echo "Git revision lookup unavailable; downloading fresh master with mandatory CLI validation."
+  SOURCE_URL="https://raw.githubusercontent.com/${REPO}/master/bunny/cli.py?cache_bust=${NONCE}"
+  SOURCE_LABEL="master (cache-busted, build-checked)"
 fi
 
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT HUP INT TERM
-echo "Downloading TorrServer CLI at commit: $REV"
-curl -fsSL --retry 3 \
-  "https://raw.githubusercontent.com/${REPO}/${REV}/bunny/cli.py" -o "$TMP"
+if ! curl -fsSL --retry 3 "$SOURCE_URL" -o "$TMP"; then
+  echo 'Could not download the CLI from GitHub. Existing local installation left unchanged.' >&2
+  echo 'If GitHub temporarily returns HTTP 403/429, check connectivity or retry after the limit resets.' >&2
+  exit 1
+fi
 
 # Verify presence of the regression fix BEFORE overwriting the installed CLI.
 python3 - "$TMP" <<'PY'
@@ -43,7 +64,7 @@ exec python3 "${HOME}/.local/share/torrserver-bunny/cli.py" "$@"
 WRAPPER
 chmod 755 "$BIN_DIR/torrserver-bunny"
 
-echo "Installed ~/.local/bin/torrserver-bunny (source commit $REV)"
+echo "Installed ~/.local/bin/torrserver-bunny (source: $SOURCE_LABEL)"
 echo "If necessary, add $BIN_DIR to your PATH."
 # Use "doctor" for read-only post-500 diagnosis; default remains interactive setup.
 if [ "$#" -eq 0 ]; then set -- setup; fi
