@@ -21,18 +21,32 @@ type tracker struct {
     lastMedia atomic.Int64
     active atomic.Int64
     bytes atomic.Int64
+    proxyRequests atomic.Int64
+    mediaRequests atomic.Int64
+    otherRequests atomic.Int64
+    otherResponseBytes atomic.Int64
+    unclassifiedMediaBytes atomic.Int64
 }
 
 type countedBody struct {
     io.ReadCloser
     tracker *tracker
+    isTrackedMedia bool
+    isUnclassifiedMedia bool
 }
 
 func (c *countedBody) Read(p []byte) (int, error) {
     n, err := c.ReadCloser.Read(p)
     if n > 0 {
-        c.tracker.lastMedia.Store(time.Now().Unix())
-        c.tracker.bytes.Add(int64(n))
+        if c.isTrackedMedia {
+            c.tracker.lastMedia.Store(time.Now().Unix())
+            c.tracker.bytes.Add(int64(n))
+        } else {
+            c.tracker.otherResponseBytes.Add(int64(n))
+            if c.isUnclassifiedMedia {
+                c.tracker.unclassifiedMediaBytes.Add(int64(n))
+            }
+        }
     }
     return n, err
 }
@@ -48,10 +62,16 @@ func newHandler(target *url.URL, token string, t *tracker) http.Handler {
     proxy := httputil.NewSingleHostReverseProxy(target)
     proxy.FlushInterval = -1 // do not buffer video chunks
     proxy.ModifyResponse = func(res *http.Response) error {
-        if isMedia(res.Request.URL.Path) {
+        tracked := isMedia(res.Request.URL.Path)
+        if tracked {
             res.Header.Set("Cache-Control", "private, no-store, max-age=0")
-            res.Body = &countedBody{ReadCloser: res.Body, tracker: t}
         }
+        // Diagnostic only: bytes on an unknown route with media-like Content-Type
+        // are NOT counted as verified playback and cannot enable an idle stop.
+        ctype := strings.ToLower(res.Header.Get("Content-Type"))
+        otherMedia := !tracked && (strings.HasPrefix(ctype, "video/") || strings.HasPrefix(ctype, "audio/"))
+        res.Body = &countedBody{ReadCloser: res.Body, tracker: t,
+            isTrackedMedia: tracked, isUnclassifiedMedia: otherMedia}
         return nil
     }
     proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
@@ -71,6 +91,11 @@ func newHandler(target *url.URL, token string, t *tracker) http.Handler {
                 "last_media_unix": t.lastMedia.Load(),
                 "active_streams": t.active.Load(),
                 "media_bytes": t.bytes.Load(),
+                "proxy_requests": t.proxyRequests.Load(),
+                "media_requests": t.mediaRequests.Load(),
+                "other_requests": t.otherRequests.Load(),
+                "other_response_bytes": t.otherResponseBytes.Load(),
+                "unclassified_media_bytes": t.unclassifiedMediaBytes.Load(),
             })
             return
         }
@@ -78,10 +103,14 @@ func newHandler(target *url.URL, token string, t *tracker) http.Handler {
             http.NotFound(w, r)
             return
         }
+        t.proxyRequests.Add(1)
         if isMedia(r.URL.Path) {
+            t.mediaRequests.Add(1)
             t.active.Add(1)
             defer t.active.Add(-1)
             t.lastMedia.Store(time.Now().Unix())
+        } else {
+            t.otherRequests.Add(1)
         }
         proxy.ServeHTTP(w, r)
     })
