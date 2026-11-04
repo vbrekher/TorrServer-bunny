@@ -153,12 +153,44 @@ class DocumentationTests(unittest.TestCase):
         for phrase in (
             "torrserver-bunny start", "torrserver-bunny stop",
             "torrserver-bunny status", "status --show-credentials",
-            "CREATE", "Anycast", ":32000", "Scheduled idle shutdown is still **unverified**", "owner-confirmed",
+            "CREATE", "Anycast", ":32000", "Owner-confirmed Lampa playback is verified;", "YOUR_USERNAME/TorrServer-bunny",
             "torrserver-bunny activity", "gh workflow enable idle-watchdog.yml",
             "50 GB", "$0.58", "$2.68", "YouROK",
             "bunny-cli-tests.yml",
         ):
             self.assertIn(phrase, text)
+
+    def test_simple_60_minute_guide_is_complete_in_all_locales(self):
+        pages = {
+            "ru": ("## 6. Автоотключение через 60 минут — простая инструкция",
+                   "Включить один раз", "Как пользоваться каждый день", "ENABLE",
+                   "Secrets installed", "Tracked media bytes", "inactive"),
+            "en": ("## 6. Auto-stop after 60 idle minutes — easy guide",
+                   "Set up once", "Everyday use", "ENABLE", "Secrets installed",
+                   "Tracked media bytes", "inactive"),
+            "nl": ("## 6. Automatisch stoppen na 60 minuten — eenvoudige uitleg",
+                   "Eenmalig instellen", "Dagelijks gebruik", "ENABLE",
+                   "Secrets installed", "Tracked media bytes", "inactive"),
+        }
+        for lang, checks in pages.items():
+            text = (ROOT / f"docs/README.{lang}.md").read_text(encoding="utf-8")
+            with self.subTest(lang=lang):
+                for phrase in checks:
+                    self.assertIn(phrase, text)
+                self.assertIn('YOUR_USERNAME/TorrServer-bunny', text)
+                self.assertIn('gh workflow run idle-watchdog.yml', text)
+                self.assertIn('gh run list --workflow idle-watchdog.yml', text)
+                self.assertIn('~/.local/bin/torrserver-bunny activity', text)
+                self.assertIn('~/.local/bin/torrserver-bunny stop', text)
+                self.assertIn('gh auth status', text)
+                self.assertNotIn('REPO="vbrekher/TorrServer-bunny"', text)
+
+        landing = (ROOT / "README.md").read_text(encoding="utf-8")
+        for phrase in ("Автоотключение за 4 шага", "4 steps to auto-stop",
+                       "Automatisch stoppen in 4 stappen",
+                       "docs/README.ru.md#6-", "docs/README.en.md#6-",
+                       "docs/README.nl.md#6-", "GitHub checks approximately every"):
+            self.assertIn(phrase, landing)
 
     def test_all_three_languages_cover_basic_usage(self):
         for lang in ("ru", "en", "nl"):
