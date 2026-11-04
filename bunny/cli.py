@@ -654,7 +654,8 @@ def activity_status():
         print('Minutes since gateway startup (no video tracked yet):', age_seconds // 60)
     else:
         print('Minutes since last tracked media:', age_seconds // 60)
-    eligible = stats['media_bytes'] > 0 and can_stop(stats, now, 3600)
+    eligible = (stats['media_bytes'] > 0 and stats.get('unclassified_media_bytes', 0) == 0
+                and can_stop(stats, now, 3600))
     print('Eligible to stop after 60 idle minutes:', 'yes' if eligible else 'no')
     if stats['media_bytes'] == 0:
         print('WARNING: No media bytes tracked since this container started.')
