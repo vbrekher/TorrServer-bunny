@@ -110,51 +110,75 @@ You do not reinstall or create another Bunny app for each movie.
 
 **Official rates (checked 2 November 2026):** [Magic Containers — compute, storage, Anycast, bandwidth](https://bunny.net/magic-containers/) · [Bunny CDN pricing](https://bunny.net/pricing/cdn/).
 
-## 6. Enable and verify automatic shutdown after 60 idle minutes
+## 6. Auto-stop after 60 idle minutes — easy guide
 
-**Previous issue found in live CI:** scheduled GitHub Actions runs on 3 November 2026 failed because all four required secrets were not installed: `BUNNY_API_KEY`, `BUNNY_APP_ID`, `BUNNY_PUBLIC_URL` and `BUNNY_WATCHDOG_TOKEN`. No automatic stop was performed. **Never paste secrets into GitHub source files or chat.**
+**How it works:** Start TorrServer, watch a movie in Lampa, and stop playback. If the gateway detects **no video transfer for 60 continuous minutes** and no active media request, GitHub Actions will try to stop your Bunny container. **This is not 60 minutes after starting the server** and not a guaranteed exact-time timer.
 
-You need an authenticated [GitHub CLI](https://cli.github.com/) (`gh`) on your computer and your **own** repository, `vbrekher/TorrServer-bunny`. The local CLI stores the required values in a protected configuration file.
+### Set up once
 
-**First, update your existing local CLI without creating another Bunny app:**
+**1. Prepare GitHub.** Install [GitHub CLI (`gh`)](https://cli.github.com/), sign in with `gh auth login` if necessary, and use **your own fork of [TorrServer-bunny](https://github.com/vbrekher/TorrServer-bunny)**. Make sure your fork includes `.github/workflows/idle-watchdog.yml`. The original repository owner may use the original repository. **Never put your Bunny API key in somebody else's GitHub repository.**
+
+**2. Update your Mac/Linux command-line app (does not create another server):**
 
 ```bash
-curl -fsSL --retry 3 \\
-  https://raw.githubusercontent.com/vbrekher/TorrServer-bunny/master/install-bunny.sh \\
-  -o /tmp/torrserver-bunny-update.sh \\
+curl -fsSL --retry 3 \
+  https://raw.githubusercontent.com/vbrekher/TorrServer-bunny/master/install-bunny.sh \
+  -o /tmp/torrserver-bunny-update.sh \
   && sh /tmp/torrserver-bunny-update.sh status
 ```
 
-**Step 1 — Verify actual media tracking.** Start the existing app, play a permitted test video briefly through Lampa, then stop playback **without stopping the Bunny container**:
+If your existing server is `inactive`, run `~/.local/bin/torrserver-bunny start` once and check `status` until `State: active`. **Do not repeat start while Bunny is `progressing` or after a timeout without checking status first.**
+
+**3. Play a test video in Lampa for a minute. Then run:**
 
 ```bash
 ~/.local/bin/torrserver-bunny activity
 ```
 
-The result must show `Watchdog endpoint: reachable` and **`Tracked media bytes since container startup` greater than zero**. If the endpoint returns an error or records zero bytes, **do not enable automatic shutdown yet**: the streaming route or CDN may bypass the activity gateway. **If you have not played video since the current container started, zero bytes is expected.** Once the updated Docker image has been deployed to the **existing app**, the extended counters distinguish no requests, recognized streams, and video on unknown paths. Use `~/.local/bin/torrserver-bunny activity --probe` for a safe, no-credentials `/echo` routing check; it does not fetch torrents or deploy/undeploy Bunny resources. Updating the Mac CLI alone does not update the running container image.
+Look for `Tracked media bytes since container startup` **greater than zero**. This proves that playback passes through the monitored gateway. If you see `0`, play a test video **since the last container start** and check again. **Do not enable auto-stop while the count is zero.** The optional `activity --probe` requires the updated Docker image on the live Bunny app.
 
-**Step 2 — Install your GitHub secrets and perform a safe manual workflow check:**
+**4. Connect automatic checks to your own GitHub account:**
 
 ```bash
+# Replace YOUR_USERNAME with your own GitHub username.
+REPO="YOUR_USERNAME/TorrServer-bunny"
+
 gh auth status
-~/.local/bin/torrserver-bunny enable-github-watchdog --repo vbrekher/TorrServer-bunny
-gh workflow enable idle-watchdog.yml -R vbrekher/TorrServer-bunny
-gh workflow run idle-watchdog.yml -R vbrekher/TorrServer-bunny
-gh run list -R vbrekher/TorrServer-bunny --workflow idle-watchdog.yml -L 5
+~/.local/bin/torrserver-bunny enable-github-watchdog --repo "$REPO"
+# Type ENABLE when asked; continue only after "Secrets installed".
+gh workflow enable idle-watchdog.yml -R "$REPO"
+gh workflow run idle-watchdog.yml -R "$REPO"
+gh run list --workflow idle-watchdog.yml -R "$REPO" -L 5
 ```
 
-The CLI will ask you to type `ENABLE`. It transfers the four secret values **from your local protected configuration to GitHub Actions Secrets** of **your repository**. The manual workflow run **does not force an early stop**; the 60-minute idle condition still applies. Do not use a third-party repository.
+When prompted, type `ENABLE`. The CLI installs four values into **GitHub Actions Secrets** of your repository. **Continue to the `gh workflow` commands only if you see `Secrets installed`**. If `gh auth status` fails, sign in using `gh auth login`. Never paste credentials into README files or issues.
 
-**Step 3 — Verify the automatic stop.** Stop watching in Lampa but **leave the Bunny app running**. Do not play anything for at least **60 minutes**. The scheduled workflow runs approximately every **10 minutes**; after observing at least 60 minutes without media data, it requests `undeploy`.
+### Everyday use
+
+**Start:** `~/.local/bin/torrserver-bunny start`, then wait for `State: active` using `status`. Lampa cannot start an undeployed server by itself.
+
+**Watch:** Use Lampa normally.
+
+**Finish:** Stop playback, but leave the Bunny app running. After **at least 60 minutes without tracked video**, GitHub Actions (approximately every 10 minutes) can request `undeploy`. A new video stream resets the idle period. GitHub's schedule can run late or be skipped.
+
+**Check whether it stopped:**
 
 ```bash
-gh run list -R vbrekher/TorrServer-bunny --workflow idle-watchdog.yml -L 10
+REPO="YOUR_USERNAME/TorrServer-bunny"
+gh run list --workflow idle-watchdog.yml -R "$REPO" -L 10
 ~/.local/bin/torrserver-bunny status
 ```
 
-Inspect the latest GitHub Actions run for the log line `IDLE_STOP_REQUESTED`. A successful workflow alone does **not** prove shutdown: it may have correctly skipped stopping while media was active. Confirm the app is no longer `active` in Bunny.
+Open GitHub → **Actions → Stop TorrServer after 60 minutes without media streaming**. `IDLE_STOP_REQUESTED` means a stop was **requested**, not necessarily completed; confirm `State: inactive` using `status`. A green GitHub Actions run alone does **not** prove the server stopped.
 
-**Limitations:** not an exact 60:00 timer. Typically the next scheduled check after 60 minutes can stop the app, but GitHub Actions can delay or skip jobs. Counters reset after container restart. For safety the controller skips automatic undeploy until it observes media bytes since the current container startup. Manual `torrserver-bunny stop` works immediately; allocated storage and Anycast IPv4 may continue to cost money.
+### Good to know
+
+- **No streaming since startup?** The counter stays `0` and the safety rule will **not automatically stop** the container. Use `~/.local/bin/torrserver-bunny stop` instead.
+- **Watching a movie:** recognized active media requests prevent stop; unmonitored streaming routes still need separate validation.
+- **Your computer may be off:** GitHub Actions performs scheduled checks in the cloud after setup.
+- **Costs:** stopping container compute does not necessarily stop persistent-storage or allocated Anycast IPv4 charges.
+- **Security:** Bunny API keys have broad permissions. Keep your GitHub repo and its workflows secure.
+- **Current verification:** Lampa playback is owner-confirmed; an actual successful 60-minute auto-stop is **not yet verified**.
 
 ## 7. Problems and quick fixes
 
