@@ -154,52 +154,50 @@ An **illustrative Blu-ray-size movie** streamed over **3 hours** to one viewer i
 
 ## 🕒 Automatic shutdown after 60 idle minutes
 
-**Current real-world state:** the watchdog workflow was triggered by GitHub, but the runs on 3 November 2026 failed because the required four GitHub Actions secrets were not yet configured. **It has not stopped the Bunny app.** The video-streaming path is now confirmed by the owner; the idle auto-stop remains unverified.
+**Start the server → watch a movie in Lampa → stop playback → let GitHub Actions shut down the idle container.** The timer starts from the **last tracked video activity**, not from server startup. No extra software needs to stay running on your Mac after setup.
 
-To activate it, you need an authenticated [GitHub CLI](https://cli.github.com/) (`gh`) on your Mac/Linux computer and the repository **you own**: `vbrekher/TorrServer-bunny`. The local installer already keeps your Bunny API key, app ID, HTTPS URL and watchdog token in a restricted configuration file. **Never paste or commit these credentials into GitHub.**
+**Simple instructions in your language:**
 
-**First, update the local CLI WITHOUT creating a new Bunny app:**
+| 🇷🇺 Русский | 🇬🇧 English | 🇳🇱 Nederlands |
+| :---: | :---: | :---: |
+| **[Автоотключение за 4 шага](docs/README.ru.md#6-автоотключение-через-60-минут--простая-инструкция)** | **[4 steps to auto-stop](docs/README.en.md#6-auto-stop-after-60-idle-minutes--easy-guide)** | **[Automatisch stoppen in 4 stappen](docs/README.nl.md#6-automatisch-stoppen-na-60-minuten--eenvoudige-uitleg)** |
 
-```bash
-curl -fsSL --retry 3 \\
-  https://raw.githubusercontent.com/vbrekher/TorrServer-bunny/master/install-bunny.sh \\
-  -o /tmp/torrserver-bunny-update.sh \\
-  && sh /tmp/torrserver-bunny-update.sh status
-```
+### First-time setup (do this once)
 
-**1. Start the existing app and briefly play a test stream in Lampa.** After playback, stop the video but **leave the Bunny container running**. Then verify the gateway counter (this is read-only):
+**1.** Install and sign in to [GitHub CLI](https://cli.github.com/) (`gh`); use **a GitHub repository you own** containing `.github/workflows/idle-watchdog.yml` (fork this repository if necessary). Do not give your Bunny API key to a repository owned by someone else.
+
+**2.** Start your existing Bunny app, play a short video in Lampa and check that the gateway has counted real media data:
 
 ```bash
 ~/.local/bin/torrserver-bunny activity
 ```
 
-Look for `Watchdog endpoint: reachable`, `Tracked media bytes since container startup:` greater than zero, and `Minutes since last tracked media:` close to zero. If this check fails or records **0 bytes**, do **not** enable the watchdog: Bunny's CDN or the streaming route may bypass the activity gateway. **If you have not actually streamed since the current container started, zero bytes is expected.** The updated gateway exposes privacy-safe counters for gateway requests and recognized/unrecognized media. Once the updated container image is deployed to the **existing app**, use `torrserver-bunny activity --probe` to test the CDN-to-gateway route without accessing torrents. A CLI update alone does not replace the running container image.
+`Tracked media bytes since container startup` must be **greater than 0**. If it is `0`, auto-stop must remain off; play a test stream since the current container startup and recheck.
 
-**2. Install the four GitHub Actions secrets to your own repository, enable the workflow, and perform a manual smoke test:**
+**3.** Enable the scheduled watchdog on your **own GitHub repository**:
 
 ```bash
+REPO="YOUR_USERNAME/TorrServer-bunny" # Replace with your own GitHub repo
 gh auth status
-~/.local/bin/torrserver-bunny enable-github-watchdog --repo vbrekher/TorrServer-bunny
-# At the secure prompt, review and enter ENABLE.
-gh workflow enable idle-watchdog.yml -R vbrekher/TorrServer-bunny
-gh workflow run idle-watchdog.yml -R vbrekher/TorrServer-bunny
-gh run list -R vbrekher/TorrServer-bunny --workflow idle-watchdog.yml -L 5
+~/.local/bin/torrserver-bunny enable-github-watchdog --repo "$REPO"
+# Enter ENABLE when prompted. Continue ONLY if "Secrets installed" appears.
+gh workflow enable idle-watchdog.yml -R "$REPO"
+gh workflow run idle-watchdog.yml -R "$REPO"
 ```
 
-The manual run is **not a forced shutdown**. It evaluates the same 60-minute idle condition: while video has recently played, it must leave the server running.
+The CLI securely sets four GitHub Actions repository secrets from your local configuration; **do not paste secrets into README or GitHub source files**. The manual workflow run is a connectivity check, not a forced shutdown.
 
-**3. Leave the server running and do not play video for at least 60 minutes.** The scheduled workflow checks about every 10 minutes. Once its two consecutive checks both confirm ≥60 minutes of inactivity, it requests `undeploy`. To verify a real stop:
+**4.** After playback ends, leave the Bunny app running and avoid streaming for **60 minutes or more**. Check the result:
 
 ```bash
-gh run list -R vbrekher/TorrServer-bunny --workflow idle-watchdog.yml -L 10
-gh run view --log -R vbrekher/TorrServer-bunny
+gh run list --workflow idle-watchdog.yml -R "$REPO" -L 10
 ~/.local/bin/torrserver-bunny status
 ```
 
-In the logs look for `IDLE_STOP_REQUESTED`, then verify in Bunny `status` or your dashboard that the app is no longer `active`. A successful workflow alone does **not** prove shutdown — it may have correctly skipped stopping because a stream was active.
+The log line `IDLE_STOP_REQUESTED` means shutdown was requested; `State: inactive` confirms Bunny actually stopped. A green GitHub Actions run can simply mean that the stop condition was not met.
 
-> [!NOTE]
-> The shutdown happens **after** 60 minutes of no tracked streaming, usually within the next ten-minute check, **not necessarily at exactly 60:00**. GitHub scheduled runs can be delayed or skipped. On every new container start, gateway counters reset; for safety, the controller will **not auto-stop until it has observed media bytes** in that container. If you want to stop immediately, use `torrserver-bunny stop`. Allocated volume and Anycast IPv4 may remain billable.
+> [!IMPORTANT]
+> GitHub checks approximately every **10 minutes**, but scheduled runs may be delayed or skipped: **this is not a guaranteed 60:00 timer**. If no video has been tracked since this container started, the safety rule will *not* stop it automatically; use `~/.local/bin/torrserver-bunny stop`. Lampa cannot restart a stopped container by itself. Persistent storage and allocated Anycast IP can still cost money. **Owner-confirmed Lampa playback is verified; a live 60-minute automatic shutdown is not yet verified.**
 
 <details>
 <summary><strong>🔧 Advanced troubleshooting and useful commands</strong></summary>
