@@ -351,6 +351,42 @@ class CLIConfigTests(unittest.TestCase):
             with self.assertRaisesRegex(cli.DeploymentError, 'Unclassified media response'):
                 cli.github_watchdog(SimpleNamespace(repo='vbrekher/TorrServer-bunny'))
 
+    def test_activity_probe_reaches_gateway_without_credentials_or_app_changes(self):
+        import io
+        from contextlib import redirect_stdout
+        states = [
+            ({'active_streams': 0, 'last_media_unix': 100, 'media_bytes': 0,
+              'proxy_requests': 3}, 3600),
+            ({'active_streams': 0, 'last_media_unix': 100, 'media_bytes': 0,
+              'proxy_requests': 4}, 3601),
+        ]
+        cfg = {'url': 'https://mc-test.bunny.run', 'api_key': 'never_send',
+               'watchdog_token': 'never_send', 'password': 'never_send'}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'activity_snapshot', side_effect=states), \
+             patch.object(cli.time, 'time', return_value=3600), \
+             patch.object(cli, 'request', return_value=None) as request, \
+             redirect_stdout(io.StringIO()) as output:
+            cli.activity_probe()
+            req = request.call_args
+            self.assertEqual(req.args[0], 'GET')
+            self.assertIn('/echo?bunny_probe=', req.args[1])
+            self.assertNotIn('never_send', str(req))
+            self.assertIn('PROBE_PASS', output.getvalue())
+
+    def test_activity_probe_requires_deployed_route_counters(self):
+        import io
+        from contextlib import redirect_stdout
+        cfg = {'url': 'https://mc-test.bunny.run'}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'activity_snapshot', return_value=(
+                 {'active_streams': 0, 'last_media_unix': 100, 'media_bytes': 0}, 5000)), \
+             patch.object(cli, 'request') as request, \
+             redirect_stdout(io.StringIO()) as output:
+            cli.activity_probe()
+            self.assertIn('no extended route counters', output.getvalue())
+            request.assert_not_called()
+
     def test_idle_check_fails_safe_when_no_video_bytes(self):
         import io
         from contextlib import redirect_stdout
