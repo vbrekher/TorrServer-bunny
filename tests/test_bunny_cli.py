@@ -197,6 +197,53 @@ class CLIConfigTests(unittest.TestCase):
                 self.assertTrue(cli.load_config()['public_peers'])
                 self.assertFalse(any(x[0]=='POST' for x in calls))
 
+    def test_network_timeout_retries_get_but_never_mutating_post(self):
+        import io
+        import urllib.error
+        from contextlib import redirect_stderr
+        timeout = urllib.error.URLError(TimeoutError('timed out'))
+        dummy_response = unittest.mock.MagicMock()
+        dummy_response.__enter__.return_value.read.return_value = b'{"status":"active"}'
+        with patch.object(cli.urllib.request, 'urlopen', side_effect=[timeout, dummy_response]) as remote, \
+             redirect_stderr(io.StringIO()) as warnings:
+            result = cli.request('GET', '/mc/apps/existing', 'secret')
+            self.assertEqual(result['status'], 'active')
+            self.assertEqual(remote.call_count, 2)
+            self.assertIn('Read-only GET timed out', warnings.getvalue())
+
+        with patch.object(cli.urllib.request, 'urlopen', side_effect=timeout) as remote:
+            with self.assertRaisesRegex(cli.DeploymentError, 'outcome is UNKNOWN'):
+                cli.request('POST', '/mc/apps/existing/deploy', 'secret')
+            remote.assert_called_once()
+
+    def test_repeated_get_timeouts_fail_without_post_or_credentials(self):
+        import urllib.error
+        timeout = urllib.error.URLError(TimeoutError('timed out'))
+        with patch.object(cli.urllib.request, 'urlopen', side_effect=[timeout, timeout]) as remote, \
+             patch.object(cli.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(cli.DeploymentError, 'Network request failed: timed out'):
+                cli.request('GET', '/mc/apps/existing', 'secret')
+            self.assertEqual(remote.call_count, 2)
+            sleep.assert_not_called()
+
+    def test_status_keeps_existing_https_url_when_secondary_inventory_times_out(self):
+        import io
+        from contextlib import redirect_stdout
+        c = {'api_key': 'secret', 'app_id': 'my-app', 'region': 'AMS',
+             'url': 'https://mc-example.bunny.run', 'username': 'user', 'password': 'hidden'}
+        with patch.object(cli, 'load_config', return_value=c), \
+             patch.object(cli, 'request', return_value={'status': 'active'}), \
+             patch.object(cli, 'fetch_url', side_effect=cli.DeploymentError('Network request failed: timed out')), \
+             patch.object(cli, 'save_config') as save, \
+             patch.object(cli, 'print_details') as details, \
+             redirect_stdout(io.StringIO()) as printed:
+            cli.status()
+            self.assertIn('State: active', printed.getvalue())
+            self.assertIn('Endpoint inventory temporarily unavailable', printed.getvalue())
+            save.assert_not_called()
+            self.assertEqual(c['url'], 'https://mc-example.bunny.run')
+            details.assert_called_once()
+
     def test_doctor_read_only(self):
         calls=[]
         def fake(method, path, key):
