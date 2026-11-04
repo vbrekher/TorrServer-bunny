@@ -637,9 +637,12 @@ def activity_status():
     print('Watchdog endpoint: reachable (protected gateway activity validated)')
     print('Active streaming requests:', stats['active_streams'])
     print('Tracked media bytes since container startup:', stats['media_bytes'])
-    print('Minutes since last tracked media:', age_seconds // 60)
-    print('Eligible to stop after 60 idle minutes:',
-          'yes' if can_stop(stats, now, 3600) else 'no')
+    if stats['media_bytes'] == 0:
+        print('Minutes since gateway startup (no video tracked yet):', age_seconds // 60)
+    else:
+        print('Minutes since last tracked media:', age_seconds // 60)
+    eligible = stats['media_bytes'] > 0 and can_stop(stats, now, 3600)
+    print('Eligible to stop after 60 idle minutes:', 'yes' if eligible else 'no')
     if stats['media_bytes'] == 0:
         print('WARNING: No media bytes tracked since this container started. '
               'Play a test stream through the HTTPS CDN URL, then rerun activity.')
