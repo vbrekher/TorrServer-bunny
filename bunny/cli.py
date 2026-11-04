@@ -675,6 +675,44 @@ def activity_status():
     print('READ_ONLY: this command never deploys or undeploys the app.')
 
 
+def activity_probe():
+    """Read-only HTTP routing check: does a cache-busted /echo reach the gateway?
+
+    Does not access any torrents, does not create paid Bunny resources and does
+    not send the TorrServer password, Bunny API key or watchdog token to /echo.
+    """
+    c = load_config()
+    url = canonical_https_endpoint(c.get('url'))
+    if not url:
+        raise DeploymentError('Run status first: no valid HTTPS CDN URL for the probe')
+    before, _ = activity_snapshot()
+    if 'proxy_requests' not in before:
+        print('The deployed container has no extended route counters yet.')
+        print('Publish the updated Docker image and redeploy the EXISTING app to enable route probing.')
+        return
+    stamp = str(int(time.time() * 1000))
+    try:
+        request('GET', url + '/echo?bunny_probe=' + stamp,
+                extra_headers={'Cache-Control': 'no-cache'})
+    except DeploymentError:
+        # Upstream may enforce Basic auth on /echo. A 401 still counts if the
+        # gateway received it. Never print body or the private authorization.
+        pass
+    after, _ = activity_snapshot()
+    if 'proxy_requests' not in after:
+        print('Gateway route diagnostics disappeared during probe; no conclusion.')
+        return
+    delta = after['proxy_requests'] - before['proxy_requests']
+    if delta > 0:
+        print('PROBE_PASS: cache-busted HTTPS /echo request reached the gateway.')
+        print('Gateway request counter increased by:', delta)
+        print('If Lampa playback still records zero bytes, inspect Lampa stream URL and CDN caching.')
+    else:
+        print('PROBE_INCONCLUSIVE: HTTPS /echo did not increase the gateway request counter.')
+        print('Check Bunny CDN endpoint/origin routing and caching; no auto-stop was enabled.')
+    print('READ_ONLY: no Bunny deploy/undeploy or torrent operation performed.')
+
+
 def can_stop(stats, now, idle_seconds):
     if not isinstance(stats, dict):
         raise DeploymentError('Unexpected activity response; refusing to stop')
@@ -781,7 +819,8 @@ def main(argv=None):
     st = sub.add_parser('status', help='Read Bunny app state and repair URL from HTTPS CDN endpoint')
     st.add_argument('--show-credentials', action='store_true', help='Display TorrServer password locally (keep output private)')
     sub.add_parser('doctor', help='Read-only check for apps after a Bunny HTTP 500')
-    sub.add_parser('activity', help='Read-only check: last media activity, active streams and gateway reachability')
+    act = sub.add_parser('activity', help='Read-only check: stream byte counters and gateway routing')
+    act.add_argument('--probe', action='store_true', help='Test routing with a no-credentials /echo request (no torrent use)')
     sub.add_parser('enable-peers', help='Add optional paid BitTorrent Anycast endpoint to existing app')
     u = sub.add_parser('set-url', help='Store exact HTTPS URL shown in Bunny dashboard')
     u.add_argument('url')
@@ -797,7 +836,8 @@ def main(argv=None):
         elif args.command in ('start', 'stop'): lifecycle(args.command)
         elif args.command == 'status': status(args.show_credentials)
         elif args.command == 'doctor': doctor()
-        elif args.command == 'activity': activity_status()
+        elif args.command == 'activity':
+            activity_probe() if args.probe else activity_status()
         elif args.command == 'enable-peers':
             c = load_config()
             print('Enabling a separately billed Anycast IPv4 endpoint. Type ENABLE to confirm.')
