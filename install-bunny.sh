@@ -27,7 +27,7 @@ curl -fsSL --retry 3 \
 python3 - "$TMP" <<'PY'
 import pathlib,sys
 source=pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')
-required=('2026-11-04-watchdog-activity-preflight', 'def registry_ids(', "def ensure_registry(", "'/mc/registries/digest'", 'def activity_status(', 'def activity_snapshot(')
+required=('2026-11-04-watchdog-route-diagnostics', 'def registry_ids(', "def ensure_registry(", "'/mc/registries/digest'", 'def activity_status(', 'def activity_snapshot(')
 if not all(x in source for x in required) or "Several GHCR registries found" in source:
     sys.exit('Downloaded CLI does not contain the required registry fix; aborting before setup.')
 print('Registry fix verified: current CLI loaded.')
