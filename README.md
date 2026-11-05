@@ -194,10 +194,10 @@ gh run list --workflow idle-watchdog.yml -R "$REPO" -L 10
 ~/.local/bin/torrserver-bunny status
 ```
 
-The log line `IDLE_STOP_REQUESTED` means shutdown was requested; `State: inactive` confirms Bunny actually stopped. A green GitHub Actions run can simply mean that the stop condition was not met.
+The log line `IDLE_STOP_REQUESTED` means shutdown was requested; `State: inactive` confirms Bunny actually stopped. A green GitHub Actions run can simply mean that the stop condition was not met. When Bunny is already inactive, the updated watchdog logs `ALREADY_INACTIVE` and exits without another stop. For noninteractive logs, pass the run ID: `gh run view RUN_ID -R "$REPO" --log`.
 
 > [!IMPORTANT]
-> GitHub checks approximately every **10 minutes**, but scheduled runs may be delayed or skipped: **this is not a guaranteed 60:00 timer**. If no video has been tracked since this container started, the safety rule will *not* stop it automatically; use `~/.local/bin/torrserver-bunny stop`. Lampa cannot restart a stopped container by itself. Persistent storage and allocated Anycast IP can still cost money. **Owner-confirmed Lampa playback is verified; a live 60-minute automatic shutdown is not yet verified.**
+> GitHub checks approximately every **10 minutes**, but scheduled runs may be delayed or skipped: **this is not a guaranteed 60:00 timer**. If no video has been tracked since this container started, the safety rule will *not* stop it automatically; use `~/.local/bin/torrserver-bunny stop`. Lampa cannot restart a stopped container by itself. Persistent storage and allocated Anycast IP can still cost money. **Real-world idle auto-stop verified on 4 Nov 2026: GitHub Actions run [#41920393921](https://github.com/vbrekher/TorrServer-bunny/actions/runs/41920393921) logged `idle_minutes=91` and `IDLE_STOP_REQUESTED`; the owner confirmed Bunny `State: inactive`.**
 
 <details>
 <summary><strong>🔧 Advanced troubleshooting and useful commands</strong></summary>
@@ -232,9 +232,9 @@ More detail: **[Technical deployment guide](bunny/README.md)**.
 | Application `active`, HTTPS CDN URL received | ✅ Confirmed from Bunny API output |
 | Python CLI and Go gateway | ✅ Automated tests in [GitHub Actions](https://github.com/vbrekher/TorrServer-bunny/actions/workflows/bunny-cli-tests.yml) |
 | Streaming through Lampa | ✅ Playback confirmed by the project owner (4 Nov 2026); physical-device compatibility has not been independently audited |
-| Scheduled 60-minute shutdown on live Bunny | 🧪 Not yet verified |
+| Scheduled 60-minute shutdown on live Bunny | ✅ Verified: 91 idle minutes → stop requested → owner saw `inactive` ([GitHub run](https://github.com/vbrekher/TorrServer-bunny/actions/runs/41920393921)) |
 
-**Verification boundary:** Lampa streaming is now **owner-confirmed** (4 Nov 2026). It is not an independent compatibility certification for every Samsung/Tizen device or format. Scheduled idle shutdown is still **unverified** until a live stop is observed. This project does not provide or distribute movies, catalogs or copyrighted material.
+**Verification boundary:** Lampa streaming is now **owner-confirmed** (4 Nov 2026). It is not an independent compatibility certification for every Samsung/Tizen device or format. A real 60-minute idle shutdown **has been verified**: GitHub requested undeploy after 91 tracked idle minutes, and the owner observed the container inactive. GitHub cron scheduling remains best-effort; one live pass does not guarantee every future scheduled run. This project does not provide or distribute movies, catalogs or copyrighted material.
 
 ## ❤️ Built on open source
 
