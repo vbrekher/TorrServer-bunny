@@ -753,6 +753,26 @@ def can_stop(stats, now, idle_seconds):
     return active == 0 and now - last >= idle_seconds
 
 
+def watchdog_activity_or_inactive(url, token, key, app_id):
+    """Fail closed unless Bunny itself confirms that the app is already inactive.
+
+    An undeployed app returns a gateway 503 (sometimes branded as 'deploying').
+    That is a normal outcome after a successful watchdog shutdown. Never infer
+    inactivity from the 503 alone: a broken/deploying ACTIVE app may also 503.
+    """
+    try:
+        return get_activity(url, token)
+    except DeploymentError as exc:
+        if 'HTTP 503' not in str(exc):
+            raise
+        state = request('GET', f'/mc/apps/{urllib.parse.quote(app_id, safe="")}', key)
+        if isinstance(state, dict) and state.get('status') == 'inactive':
+            print('ALREADY_INACTIVE: Bunny API confirms container stopped. No additional action.')
+            return None
+        raise DeploymentError('Gateway returned HTTP 503 but Bunny API did not confirm '
+                              'State: inactive; refusing to stop or assume success.') from None
+
+
 def idle_check(args):
     # GitHub Actions invocation: no saved config and no plaintext API key in repository.
     if args.remote:
@@ -763,7 +783,9 @@ def idle_check(args):
     if not all((key, app_id, url, token)):
         raise DeploymentError('Missing app, HTTPS public URL or watchdog credentials; refusing to stop')
     print('Checking live activity...')
-    first = get_activity(url, token)
+    first = watchdog_activity_or_inactive(url, token, key, app_id)
+    if first is None:
+        return
     now = time.time()
     # If real playback has never been observed since container startup, we
     # cannot tell a genuinely idle server from traffic bypassing the gateway.
@@ -785,7 +807,9 @@ def idle_check(args):
         return
     # Minimize race with player beginning a stream while first response is processed.
     time.sleep(5 if not args.no_pause else 0)
-    second = get_activity(url, token)
+    second = watchdog_activity_or_inactive(url, token, key, app_id)
+    if second is None:
+        return
     second_bytes = second.get('media_bytes') if isinstance(second, dict) else None
     if isinstance(second, dict) and second.get('unclassified_media_bytes', 0) > 0:
         print('SAFE_NO_STOP: unclassified media detected on second check.')
