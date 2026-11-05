@@ -6,7 +6,7 @@ Met **TorrServer Bunny** gebruik je de open-source [TorrServer van YouROK](https
 
 **Heel eenvoudig:** één keer installeren → het HTTPS-adres invoeren in Lampa → **start** vóór je een film bekijkt → **stop** als je klaar bent. Je instellingen blijven bewaard.
 
-> **Wat al is bevestigd:** op **2 november 2026** is een echte Bunny-app aangemaakt met de status `active` en een HTTPS CDN-adres. **Op 4 november 2026 bevestigde de eigenaar dat het streamen via Lampa werkt.** Een onafhankelijke compatibiliteitstest van alle Samsung Tizen-modellen en codecs ontbreekt nog. De automatische stop is **nog niet** via een geslaagde live-stop bevestigd. Niet elke torrent, Lampa-versie of videocodec hoeft te werken.
+> **Wat al is bevestigd:** op **2 november 2026** is een echte Bunny-app aangemaakt met de status `active` en een HTTPS CDN-adres. **Op 4 november 2026 bevestigde de eigenaar dat het streamen via Lampa werkt.** Een onafhankelijke compatibiliteitstest van alle Samsung Tizen-modellen en codecs ontbreekt nog. De automatische stop is op **4 november 2026 echt bevestigd**: [GitHub Actions-run #41920393921](https://github.com/vbrekher/TorrServer-bunny/actions/runs/41920393921) zag 91 minuten inactiviteit en vroeg om uitschakeling; daarna meldde Bunny `State: inactive`. Niet elke torrent, Lampa-versie of videocodec hoeft te werken.
 
 ## 1. Wat heb je nodig?
 
@@ -174,7 +174,7 @@ gh run list --workflow idle-watchdog.yml -R "$REPO" -L 10
 ~/.local/bin/torrserver-bunny status
 ```
 
-Open GitHub → **Actions → Stop TorrServer after 60 minutes without media streaming**. `IDLE_STOP_REQUESTED` betekent dat uitschakeling is **aangevraagd**; controleer met `status` of de app echt `inactive` is. Een groen GitHub Actions-resultaat is op zichzelf geen bewijs.
+Open GitHub → **Actions → Stop TorrServer after 60 minutes without media streaming**. `IDLE_STOP_REQUESTED` betekent dat uitschakeling is **aangevraagd**; controleer met `status` of de app echt `inactive` is. Een groen GitHub Actions-resultaat is op zichzelf geen bewijs. Wanneer de app al gestopt is, meldt de vernieuwde watchdog `ALREADY_INACTIVE` nadat de Bunny API de status heeft bevestigd. Voor logboeken in Terminal moet je het **run-ID** opgeven: `gh run view RUN_ID -R YOUR_USERNAME/TorrServer-bunny --log`.
 
 ### Belangrijk
 
@@ -183,7 +183,7 @@ Open GitHub → **Actions → Stop TorrServer after 60 minutes without media str
 - **Je Mac mag uit:** na de installatie voert GitHub Actions de controles online uit.
 - **Kosten:** na een stop kunnen opslag en toegewezen Anycast IPv4 nog steeds geld kosten.
 - **Beveiliging:** Bunny API-sleutels hebben veel rechten. Beheer je eigen GitHub-repository en controleer de workflows.
-- **Huidige status:** afspelen via Lampa is door de eigenaar bevestigd; een geslaagde automatische stop na 60 minuten is **nog niet bevestigd**.
+- **Huidige status:** afspelen via Lampa is door de eigenaar bevestigd; een **echte automatische stop is geslaagd** ([91 minuten inactiviteit en `IDLE_STOP_REQUESTED`](https://github.com/vbrekher/TorrServer-bunny/actions/runs/41920393921), gevolgd door Bunny `State: inactive`). Een exacte 60:00-timer wordt niet gegarandeerd.
 
 ## 7. Problemen oplossen
 
