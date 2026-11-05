@@ -6,7 +6,7 @@ Turn your [bunny.net Magic Containers](https://bunny.net/magic-containers/) acco
 
 **In short:** install once on a Mac or Linux computer → enter the HTTPS server address in Lampa → run **start** when you want to watch → run **stop** afterwards. Your server and settings remain saved.
 
-> **Current verification:** a real Bunny app was created and Bunny returned **active** with an HTTPS CDN endpoint on 2 November 2026. **On 4 November 2026, the owner confirmed streaming playback in Lampa works.** Independent Samsung Tizen model/codec compatibility auditing is not complete. A successful real-world automatic idle stop has **not yet been verified**. This guide does not promise that all torrents, Lampa builds, or TV video formats work.
+> **Current verification:** a real Bunny app was created and Bunny returned **active** with an HTTPS CDN endpoint on 2 November 2026. **On 4 November 2026, the owner confirmed streaming playback in Lampa works.** Independent Samsung Tizen model/codec compatibility auditing is not complete. A real-world auto-stop **was verified on 4 November 2026**: [GitHub Actions run #41920393921](https://github.com/vbrekher/TorrServer-bunny/actions/runs/41920393921) logged 91 idle minutes and requested undeploy, and the owner observed `State: inactive`. This guide does not promise that all torrents, Lampa builds, or TV video formats work.
 
 ## 1. What you need
 
@@ -169,7 +169,7 @@ gh run list --workflow idle-watchdog.yml -R "$REPO" -L 10
 ~/.local/bin/torrserver-bunny status
 ```
 
-Open GitHub → **Actions → Stop TorrServer after 60 minutes without media streaming**. `IDLE_STOP_REQUESTED` means a stop was **requested**, not necessarily completed; confirm `State: inactive` using `status`. A green GitHub Actions run alone does **not** prove the server stopped.
+Open GitHub → **Actions → Stop TorrServer after 60 minutes without media streaming**. `IDLE_STOP_REQUESTED` means a stop was **requested**, not necessarily completed; confirm `State: inactive` using `status`. A green GitHub Actions run alone does **not** prove the server stopped. After shutdown, updated watchdog runs print `ALREADY_INACTIVE` when Bunny API confirms the app is inactive. To inspect logs in Terminal, pass the **run ID**: `gh run view RUN_ID -R YOUR_USERNAME/TorrServer-bunny --log`.
 
 ### Good to know
 
@@ -178,7 +178,7 @@ Open GitHub → **Actions → Stop TorrServer after 60 minutes without media str
 - **Your computer may be off:** GitHub Actions performs scheduled checks in the cloud after setup.
 - **Costs:** stopping container compute does not necessarily stop persistent-storage or allocated Anycast IPv4 charges.
 - **Security:** Bunny API keys have broad permissions. Keep your GitHub repo and its workflows secure.
-- **Current verification:** Lampa playback is owner-confirmed; an actual successful 60-minute auto-stop is **not yet verified**.
+- **Current verification:** Lampa playback is owner-confirmed; a **real auto-stop was verified** ([91 idle minutes and `IDLE_STOP_REQUESTED`](https://github.com/vbrekher/TorrServer-bunny/actions/runs/41920393921), followed by Bunny `State: inactive`). This is not a precise 60:00 timer guarantee.
 
 ## 7. Problems and quick fixes
 
