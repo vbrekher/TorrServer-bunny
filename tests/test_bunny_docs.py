@@ -153,7 +153,7 @@ class DocumentationTests(unittest.TestCase):
         for phrase in (
             "torrserver-bunny start", "torrserver-bunny stop",
             "torrserver-bunny status", "status --show-credentials",
-            "CREATE", "Anycast", ":32000", "Owner-confirmed Lampa playback is verified;", "YOUR_USERNAME/TorrServer-bunny",
+            "CREATE", "Anycast", ":32000", "Real-world idle auto-stop verified on 4 Nov 2026", "YOUR_USERNAME/TorrServer-bunny",
             "torrserver-bunny activity", "gh workflow enable idle-watchdog.yml",
             "50 GB", "$0.58", "$2.68", "YouROK",
             "bunny-cli-tests.yml",
@@ -191,6 +191,18 @@ class DocumentationTests(unittest.TestCase):
                        "docs/README.ru.md#6-", "docs/README.en.md#6-",
                        "docs/README.nl.md#6-", "GitHub checks approximately every"):
             self.assertIn(phrase, landing)
+
+    def test_live_idle_stop_status_and_citation_are_consistent(self):
+        base = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("Scheduled 60-minute shutdown on live Bunny | ✅ Verified:", base)
+        self.assertIn("41920393921", base)
+        for page in (ROOT / "docs/README.ru.md", ROOT / "docs/README.en.md",
+                     ROOT / "docs/README.nl.md", ROOT / "bunny/README.md"):
+            content = page.read_text(encoding="utf-8")
+            with self.subTest(page=page.name):
+                self.assertIn("41920393921", content)
+                self.assertIn("ALREADY_INACTIVE", content)
+                self.assertIn("State: inactive", content)
 
     def test_all_three_languages_cover_basic_usage(self):
         for lang in ("ru", "en", "nl"):
