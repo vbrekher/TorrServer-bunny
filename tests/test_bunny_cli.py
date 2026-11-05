@@ -443,6 +443,58 @@ class CLIConfigTests(unittest.TestCase):
             self.assertIn('no extended route counters', output.getvalue())
             request.assert_not_called()
 
+    def test_watchdog_after_auto_stop_is_successful_noop_on_confirmed_inactive(self):
+        import io
+        from contextlib import redirect_stdout
+        cfg = {'api_key': 'key', 'app_id': 'existing', 'url': 'https://example.bunny.run',
+               'watchdog_token': 'token'}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'get_activity',
+                          side_effect=cli.DeploymentError('Bunny/remote HTTP 503: deploying your app')), \
+             patch.object(cli, 'request', return_value={'status': 'inactive'}) as api, \
+             redirect_stdout(io.StringIO()) as output:
+            cli.idle_check(SimpleNamespace(remote=False, minutes=60, no_pause=True))
+            self.assertIn('ALREADY_INACTIVE', output.getvalue())
+            api.assert_called_once_with('GET', '/mc/apps/existing', 'key')
+
+    def test_watchdog_503_when_app_active_never_claims_idle_stop(self):
+        cfg = {'api_key': 'key', 'app_id': 'existing', 'url': 'https://example.bunny.run',
+               'watchdog_token': 'token'}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'get_activity',
+                          side_effect=cli.DeploymentError('Bunny/remote HTTP 503')), \
+             patch.object(cli, 'request', return_value={'status': 'active'}) as api:
+            with self.assertRaisesRegex(cli.DeploymentError, 'did not confirm'):
+                cli.idle_check(SimpleNamespace(remote=False, minutes=60, no_pause=True))
+            api.assert_called_once_with('GET', '/mc/apps/existing', 'key')
+
+    def test_watchdog_503_during_second_activity_check_confirms_inactive(self):
+        import io
+        from contextlib import redirect_stdout
+        cfg = {'api_key': 'key', 'app_id': 'existing', 'url': 'https://example.bunny.run',
+               'watchdog_token': 'token'}
+        old_state = {'active_streams': 0, 'last_media_unix': 100, 'media_bytes': 1234}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'get_activity',
+                          side_effect=[old_state, cli.DeploymentError('Bunny/remote HTTP 503')]), \
+             patch.object(cli, 'request', return_value={'status': 'inactive'}) as api, \
+             patch.object(cli.time, 'time', return_value=5000), \
+             redirect_stdout(io.StringIO()) as output:
+            cli.idle_check(SimpleNamespace(remote=False, minutes=60, no_pause=True))
+            self.assertIn('ALREADY_INACTIVE', output.getvalue())
+            api.assert_called_once_with('GET', '/mc/apps/existing', 'key')
+
+    def test_watchdog_auth_failure_never_queries_bunny_or_treats_as_offline(self):
+        cfg = {'api_key': 'key', 'app_id': 'existing', 'url': 'https://example.bunny.run',
+               'watchdog_token': 'token'}
+        with patch.object(cli, 'load_config', return_value=cfg), \
+             patch.object(cli, 'get_activity',
+                          side_effect=cli.DeploymentError('Bunny/remote HTTP 403')), \
+             patch.object(cli, 'request') as api:
+            with self.assertRaisesRegex(cli.DeploymentError, '403'):
+                cli.idle_check(SimpleNamespace(remote=False, minutes=60, no_pause=True))
+            api.assert_not_called()
+
     def test_idle_check_fails_safe_when_no_video_bytes(self):
         import io
         from contextlib import redirect_stdout
